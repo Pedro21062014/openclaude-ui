@@ -1,0 +1,200 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build for each OS
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            artifact_name: openclaude-ui-linux
+            pattern: 'release/*.{AppImage,deb,tar.gz,snap}'
+          - os: windows-latest
+            platform: win
+            artifact_name: openclaude-ui-win
+            pattern: 'release/*.{exe,nsis.7z,zip}'
+          - os: macos-latest
+            platform: mac
+            artifact_name: openclaude-ui-mac
+            pattern: 'release/*.{dmg,zip}'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Build & package (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          # Linux may need extra deps for electron-builder
+          sudo apt-get update -y || true
+          sudo apt-get install -y libarchive-tools rpm || true
+          npm run dist:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & package (Windows)
+        if: matrix.platform == 'win'
+        run: npm run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & package (macOS)
+        if: matrix.platform == 'mac'
+        run: npm run dist:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing (optional — only if certs are present)
+          CSC_LINK: ${{ secrets.MAC_CERTS }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.pattern }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Create GitHub Release with all artifacts
+  # ---------------------------------------------------------------------------
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building release for version: $VERSION"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( \
+            -name '*.exe' -o \
+            -name '*.dmg' -o \
+            -name '*.AppImage' -o \
+            -name '*.deb' -o \
+            -name '*.zip' -o \
+            -name '*.tar.gz' -o \
+            -name '*.snap' -o \
+            -name '*.7z' -o \
+            -name '*.rpm' \
+          \) -exec cp {} release-files/ \;
+          ls -la release-files/
+
+      - name: Generate checksums
+        run: |
+          cd release-files
+          sha256sum * > checksums.sha256
+          ls -la
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: OpenClaude UI ${{ steps.ver.outputs.version }}
+          body: |
+            # OpenClaude UI ${{ steps.ver.outputs.version }}
+
+            ## Downloads
+
+            | Platform | File | Description |
+            |----------|------|-------------|
+            | Windows | `*.exe` | NSIS installer (recommended) |
+            | Windows | `*.exe` (portable) | Standalone portable |
+            | macOS | `*.dmg` | Disk image installer |
+            | macOS | `*.zip` | Zip archive |
+            | Linux | `*.AppImage` | Portable AppImage |
+            | Linux | `*.deb` | Debian/Ubuntu package |
+            | Linux | `*.tar.gz` | Tarball |
+
+            ## Install instructions
+
+            ### Windows
+            1. Download the `*.exe` installer
+            2. Double-click to run
+            3. Follow the setup wizard
+
+            ### macOS
+            1. Download the `*.dmg` file
+            2. Open it and drag OpenClaude UI to Applications
+            3. On first launch: right-click → Open (to bypass Gatekeeper)
+
+            ### Linux
+            1. **AppImage**: chmod +x *.AppImage && ./*.AppImage
+            2. **deb**: sudo dpkg -i *.deb
+
+            ## What's new
+            - Beautiful Claude/ChatGPT-like interface
+            - Multi-provider support (Claude, OpenAI, Gemini, DeepSeek, Z.ai, OpenRouter, Ollama, Mistral, Qwen, Groq, xAI, Perplexity, Together, Fireworks)
+            - Animated "thinking" gradient orb
+            - Auto-install OpenClaude CLI on first launch
+            - Settings sync with OpenClaude
+            - Real provider logos from lobehub/lobe-icons
+
+            ## Checksums
+            See `checksums.sha256` file for SHA256 hashes of all artifacts.
+
+            ---
+            *Built from commit ${{ github.sha }}*
+          files: |
+            release-files/*
+            release-files/checksums.sha256
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
