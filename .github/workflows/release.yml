@@ -58,23 +58,15 @@ jobs:
           sudo apt-get update -y || true
           sudo apt-get install -y libarchive-tools rpm || true
           npm run dist:linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build & package (Windows)
         if: matrix.platform == 'win'
         run: npm run dist:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build & package (macOS)
         if: matrix.platform == 'mac'
         run: npm run dist:mac
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Code signing (optional — only if certs are present)
           CSC_LINK: ${{ secrets.MAC_CERTS }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
