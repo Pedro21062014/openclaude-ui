@@ -43,6 +43,8 @@ Desktop.ini
 .eslintcache
 .stylelintcache
 .npm
+*.tsbuildinfo
+tsconfig.tsbuildinfo
 
 # Test
 coverage/
