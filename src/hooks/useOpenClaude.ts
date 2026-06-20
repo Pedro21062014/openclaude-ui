@@ -117,14 +117,17 @@ export function useOpenClaude() {
     const modelInfo = findModel(selectedModel);
     const apiKey = settings.apiKey || '';
     const baseUrl = settings.baseUrl || modelInfo?.provider.defaultBaseUrl || '';
+    const provider = modelInfo?.provider.id || 'openai';
 
     const result = await window.openclaude?.startSession(SESSION_ID, {
       model: selectedModel,
       apiKey,
       baseUrl,
+      provider,
       systemPrompt: settings.systemPrompt,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
+      customArgs: settings.customArgs,
     });
 
     if (result?.ok) {

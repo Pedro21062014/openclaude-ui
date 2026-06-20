@@ -250,7 +250,7 @@ async function installOpenClaude() {
   pushStatus();
 
   await new Promise<void>((resolve) => {
-    const child = spawn('npm', ['install', '-g', 'openclaude'], {
+    const child = spawn('npm', ['install', '-g', '@gitlawb/openclaude@latest'], {
       env: process.env,
       shell: process.platform === 'win32',
     });
@@ -327,36 +327,167 @@ interface SessionOptions {
   model: string;
   apiKey?: string;
   baseUrl?: string;
+  provider?: string; // 'anthropic' | 'openai' | 'gemini' | 'github' | 'bedrock' | 'vertex' | 'ollama'
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;
+  customArgs?: string;
 }
 
 const sessions = new Map<string, ChildProcess>();
 
+/**
+ * Build the env vars OpenClaude actually reads.
+ *
+ * OpenClaude (the real @gitlawb/openclaude CLI) does NOT accept
+ * --api-key or --base-url flags. Instead, it reads provider credentials
+ * from environment variables. This helper translates the UI settings
+ * (apiKey + baseUrl + provider) into the right env vars for each provider.
+ *
+ * See https://github.com/Gitlawb/openclaude README for the full list.
+ */
+function buildSessionEnv(options: SessionOptions): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+
+  const provider = (options.provider || 'openai').toLowerCase();
+  const apiKey = options.apiKey || '';
+  const baseUrl = options.baseUrl || '';
+
+  // OpenAI-compatible providers (default path)
+  // OpenClaude reads OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL.
+  if (provider === 'openai' || provider === 'openrouter' || provider === 'deepseek' || provider === 'zai' || provider === 'qwen' || provider === 'mistral' || provider === 'groq' || provider === 'together' || provider === 'fireworks' || provider === 'perplexity' || provider === 'xai' || provider === 'openai-compatible') {
+    env.CLAUDE_CODE_USE_OPENAI = '1';
+    if (apiKey) env.OPENAI_API_KEY = apiKey;
+    if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
+    if (options.model) env.OPENAI_MODEL = options.model;
+  } else if (provider === 'anthropic' || provider === 'claude') {
+    if (apiKey) env.ANTHROPIC_API_KEY = apiKey;
+    if (baseUrl) env.ANTHROPIC_BASE_URL = baseUrl;
+  } else if (provider === 'gemini' || provider === 'google') {
+    if (apiKey) env.GEMINI_API_KEY = apiKey;
+    if (baseUrl) env.GOOGLE_GENERATIVE_AI_BASE_URL = baseUrl;
+  } else if (provider === 'ollama') {
+    env.CLAUDE_CODE_USE_OPENAI = '1';
+    env.OPENAI_BASE_URL = baseUrl || 'http://localhost:11434/v1';
+    if (options.model) env.OPENAI_MODEL = options.model;
+  } else if (provider === 'github') {
+    env.CLAUDE_CODE_USE_GITHUB = '1';
+    if (apiKey) env.GITHUB_TOKEN = apiKey;
+    if (options.model) env.OPENAI_MODEL = options.model;
+  } else {
+    // Fallback: treat as OpenAI-compatible
+    env.CLAUDE_CODE_USE_OPENAI = '1';
+    if (apiKey) env.OPENAI_API_KEY = apiKey;
+    if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
+    if (options.model) env.OPENAI_MODEL = options.model;
+  }
+
+  // OpenClaude-specific non-interactive flag
+  env.OPENCLAUDE_NON_INTERACTIVE = '1';
+
+  return env;
+}
+
+/**
+ * Start an OpenClaude chat session as a long-lived child process.
+ *
+ * Real CLI interface (verified via `openclaude --help` on v0.19.0):
+ *   openclaude -p \
+ *     --output-format stream-json \
+ *     --input-format stream-json \
+ *     --include-partial-messages \
+ *     --model <model> \
+ *     --system-prompt <prompt> \
+ *     --provider <provider> \
+ *     [prompt]
+ *
+ * The session stays alive and accepts new prompts via stdin (one JSON
+ * message per line in the stream-json input format).
+ *
+ * Output is NDJSON (one event per line) on stdout.
+ */
 function startSession(sessionId: string, options: SessionOptions) {
   if (sessions.has(sessionId)) {
     return { ok: false, error: 'Session already exists' };
   }
 
   const args: string[] = [];
-  if (ocStatus.path === 'npx openclaude') {
-    args.push('--no-install', 'openclaude');
-  }
-  args.push('chat', '--stream', '--json');
-  if (options.model) args.push('--model', options.model);
-  if (options.apiKey) args.push('--api-key', options.apiKey);
-  if (options.baseUrl) args.push('--base-url', options.baseUrl);
-  if (options.systemPrompt) args.push('--system', options.systemPrompt);
-  if (options.temperature !== undefined)
-    args.push('--temperature', String(options.temperature));
-  if (options.maxTokens !== undefined)
-    args.push('--max-tokens', String(options.maxTokens));
 
-  const cmd = ocStatus.path === 'npx openclaude' ? 'npx' : ocStatus.path || 'openclaude';
-  const child = spawn(cmd, args, {
-    env: { ...process.env, OPENCLAUDE_NON_INTERACTIVE: '1' },
+  // --print mode (non-interactive, reads prompt from arg or stdin)
+  args.push('-p');
+  // Stream JSON output (NDJSON events)
+  args.push('--output-format', 'stream-json');
+  // stream-json output requires --verbose (otherwise openclaude errors out)
+  args.push('--verbose');
+  // Accept stream-json input via stdin
+  args.push('--input-format', 'stream-json');
+  // Emit partial message chunks as they arrive
+  args.push('--include-partial-messages');
+  // Skip permission prompts (we're non-interactive)
+  args.push('--permission-mode', 'bypassPermissions');
+
+  // Model
+  if (options.model) {
+    args.push('--model', options.model);
+  }
+
+  // Provider (anthropic, openai, gemini, github, ollama, etc.)
+  // Note: most provider credentials are read from env vars (see buildSessionEnv).
+  if (options.provider) {
+    const p = options.provider.toLowerCase();
+    // Map our UI provider IDs to openclaude's --provider values
+    const providerMap: Record<string, string> = {
+      claude: 'anthropic',
+      anthropic: 'anthropic',
+      openai: 'openai',
+      gemini: 'gemini',
+      google: 'gemini',
+      ollama: 'ollama',
+      github: 'github',
+      // OpenAI-compatible providers — use 'openai' provider type
+      openrouter: 'openai',
+      deepseek: 'openai',
+      zai: 'openai',
+      qwen: 'openai',
+      mistral: 'openai',
+      groq: 'openai',
+      together: 'openai',
+      fireworks: 'openai',
+      perplexity: 'openai',
+      xai: 'openai',
+    };
+    const ocProvider = providerMap[p] || 'openai';
+    args.push('--provider', ocProvider);
+  }
+
+  // System prompt
+  if (options.systemPrompt) {
+    args.push('--system-prompt', options.systemPrompt);
+  }
+
+  // Append any custom args the user specified in Settings
+  if (options.customArgs) {
+    args.push(...options.customArgs.split(/\s+/).filter(Boolean));
+  }
+
+  // Determine the command to spawn.
+  // ocStatus.path could be:
+  //   - an absolute path like /usr/local/bin/openclaude
+  //   - just 'openclaude' (rely on PATH)
+  //   - 'npx openclaude' (legacy fallback, shouldn't happen with real install)
+  let cmd: string = ocStatus.path || 'openclaude';
+  let finalArgs: string[] = args;
+  if (cmd === 'npx openclaude') {
+    cmd = 'npx';
+    finalArgs = ['--no-install', 'openclaude', ...args];
+  }
+
+  const sessionEnv = buildSessionEnv(options);
+
+  const child = spawn(cmd, finalArgs, {
+    env: sessionEnv,
     shell: process.platform === 'win32',
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
 
   sessions.set(sessionId, child);
