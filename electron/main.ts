@@ -441,12 +441,9 @@ function runPrompt(sessionId: string, prompt: string, options: PromptOptions) {
     args.push('--continue');
   }
 
-  // Model
-  if (options.model) {
-    args.push('--model', options.model);
-  }
-
-  // Provider
+  // Provider — openclaude's --provider flag controls which backend it uses.
+  // We always pass this so openclaude knows where to send requests.
+  // The provider ID also determines which env vars buildSessionEnv() sets.
   if (options.provider) {
     const p = options.provider.toLowerCase();
     const providerMap: Record<string, string> = {
@@ -471,6 +468,39 @@ function runPrompt(sessionId: string, prompt: string, options: PromptOptions) {
     const ocProvider = providerMap[p] || 'openai';
     args.push('--provider', ocProvider);
   }
+
+  // Model — openclaude's --model flag is validated against its alias
+  // registry. It accepts:
+  //   - Anthropic aliases: 'sonnet', 'opus', 'haiku'
+  //   - Full Anthropic names: 'claude-sonnet-4-5', 'claude-opus-4-1', etc.
+  //   - Full Gemini names: 'gemini-2.5-pro', 'gemini-2.5-flash', etc.
+  // For OpenAI-compatible providers (OpenAI, DeepSeek, Z.AI, OpenRouter,
+  // Groq, Ollama, etc.) openclaude doesn't know the model names — those
+  // go via the OPENAI_MODEL env var (set in buildSessionEnv). Passing
+  // --model with an unknown name causes 'There's an issue with the
+  // selected model' errors.
+  const provider = (options.provider || 'openai').toLowerCase();
+  const isOpenAICompatible = [
+    'openai',
+    'openrouter',
+    'deepseek',
+    'zai',
+    'qwen',
+    'mistral',
+    'groq',
+    'together',
+    'fireworks',
+    'perplexity',
+    'xai',
+  ].includes(provider);
+
+  if (options.model && !isOpenAICompatible) {
+    // Pass --model only for providers openclaude validates against
+    // (Anthropic and Gemini). The model name must be one openclaude knows.
+    args.push('--model', options.model);
+  }
+  // For OpenAI-compatible providers, the model is set via OPENAI_MODEL env
+  // var in buildSessionEnv() — openclaude reads it from there.
 
   // System prompt (only pass on first message — openclaude remembers it
   // for continued conversations)

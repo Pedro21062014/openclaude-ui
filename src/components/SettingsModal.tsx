@@ -144,7 +144,7 @@ export function SettingsModal({}: SettingsModalProps) {
   const handleReset = () => {
     if (confirm('Restaurar configurações padrão?')) {
       const defaults: AppSettings = {
-        defaultModel: 'claude-sonnet-4-5',
+        defaultModel: 'sonnet',
         apiKey: '',
         baseUrl: '',
         systemPrompt: '',

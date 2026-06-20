@@ -3,7 +3,7 @@ import type { AppSettings, ChatMessage, OpenClaudeStatus } from '@/types';
 import { PROVIDERS } from '@/data/models';
 
 const DEFAULT_SETTINGS: AppSettings = {
-  defaultModel: 'claude-sonnet-4-5',
+  defaultModel: 'sonnet', // openclaude alias for latest Claude Sonnet
   apiKey: '',
   baseUrl: '',
   systemPrompt: '',
@@ -99,7 +99,7 @@ export const useStore = create<AppState>((set, get) => ({
     })),
   clearMessages: () => set({ currentMessages: [] }),
 
-  selectedModel: PROVIDERS[0].models[0].id,
+  selectedModel: 'sonnet', // openclaude alias
   setSelectedModel: (m) => set({ selectedModel: m }),
   isThinking: false,
   setIsThinking: (b) => set({ isThinking: b }),
