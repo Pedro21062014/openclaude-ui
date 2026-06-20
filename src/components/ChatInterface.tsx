@@ -54,8 +54,17 @@ export function ChatInterface() {
     }
   };
 
-  const handleSend = (text: string) => {
-    sendMessage(text);
+  const handleSend = (text: string, images?: any[]) => {
+    // For now we just send the text — openclaude's -p mode doesn't easily
+    // support image attachments via CLI args. The image picker is still
+    // useful for showing the user what they would attach, and we can
+    // embed image filenames into the prompt as a hint to openclaude.
+    let finalText = text;
+    if (images && images.length > 0) {
+      const imageList = images.map((i) => i.name).join(', ');
+      finalText = `${text}\n\n[Imagens anexadas: ${imageList}]`;
+    }
+    sendMessage(finalText);
   };
 
   const handleStop = () => {

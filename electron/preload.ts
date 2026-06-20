@@ -11,13 +11,22 @@ const api = {
     return () => ipcRenderer.removeListener('openclaude:status', handler);
   },
 
-  // Chat sessions
-  startSession: (sessionId: string, options: any) =>
-    ipcRenderer.invoke('session:start', sessionId, options),
-  sendToSession: (sessionId: string, text: string) =>
-    ipcRenderer.invoke('session:send', sessionId, text),
+  // Chat: each message runs a new openclaude process via runPrompt.
+  // sendToSession now takes (sessionId, text, options) — options include
+  // model/provider/apiKey/etc., and runPrompt spawns openclaude with
+  // --continue for conversation continuity on subsequent messages.
+  startSession: (_sessionId: string, _options: any) =>
+    ipcRenderer.invoke('session:start'), // no-op kept for compat
+  sendToSession: (sessionId: string, text: string, options: any) =>
+    ipcRenderer.invoke('session:send', sessionId, text, options),
   stopSession: (sessionId: string) => ipcRenderer.invoke('session:stop', sessionId),
 
+  // Aliases
+  runPrompt: (sessionId: string, prompt: string, options: any) =>
+    ipcRenderer.invoke('prompt:run', sessionId, prompt, options),
+  stopPrompt: (sessionId: string) => ipcRenderer.invoke('prompt:stop', sessionId),
+
+  // Stream events
   onStream: (cb: (data: any) => void) => {
     const handler = (_e: any, data: any) => cb(data);
     ipcRenderer.on('openclaude:stream', handler);
@@ -43,8 +52,13 @@ const api = {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (s: any) => ipcRenderer.invoke('settings:save', s),
 
-  // File dialog
-  openFile: () => ipcRenderer.invoke('dialog:openFile'),
+  // File dialog — supports { multiple, images } options
+  openFile: (opts?: { multiple?: boolean; images?: boolean }) =>
+    ipcRenderer.invoke('dialog:openFile', opts),
+
+  // Read a file as base64 data URL (used for image previews)
+  readAsDataURL: (filePath: string) =>
+    ipcRenderer.invoke('file:readAsDataURL', filePath),
 
   // Platform info
   platform: process.platform,

@@ -20,7 +20,9 @@ export function useOpenClaude() {
     isThinking,
   } = useStore();
 
-  const sessionStartedRef = useRef(false);
+  // Track whether we've sent at least one message in this conversation
+  // (so subsequent messages pass --continue to openclaude for context).
+  const hasPriorMessageRef = useRef(false);
   const pendingAssistantRef = useRef<string | null>(null);
 
   // Subscribe to streaming events
@@ -32,22 +34,37 @@ export function useOpenClaude() {
         if (!assistantId) return;
 
         const evt = data.event;
-        if (evt.type === 'text' || evt.type === 'delta' || evt.type === 'content') {
-          const chunk = evt.text || evt.content || evt.delta || '';
-          if (chunk) {
-            updateMessage(assistantId, (prev: ChatMessage) => ({
-              content: (prev.content || '') + chunk,
-              thinking: false,
-            }));
+        // Handle different stream-json event types from openclaude.
+        // Common types: 'system', 'assistant', 'result', 'message', 'text',
+        // 'content_block_delta', 'partial_message', etc.
+        let textChunk = '';
+
+        if (typeof evt === 'string') {
+          textChunk = evt;
+        } else if (evt.type === 'text' || evt.type === 'delta' || evt.type === 'content') {
+          textChunk = evt.text || evt.content || evt.delta || '';
+        } else if (evt.type === 'partial_message' || evt.type === 'partial') {
+          textChunk = evt.text || evt.content || evt.delta || evt.message || '';
+        } else if (evt.type === 'assistant' || evt.type === 'message') {
+          // Full assistant message — extract text content
+          if (typeof evt.message === 'string') {
+            textChunk = evt.message;
+          } else if (evt.message?.content) {
+            if (typeof evt.message.content === 'string') {
+              textChunk = evt.message.content;
+            } else if (Array.isArray(evt.message.content)) {
+              for (const c of evt.message.content) {
+                if (typeof c === 'string') textChunk += c;
+                else if (c?.text) textChunk += c.text;
+              }
+            }
           }
-        } else if (evt.type === 'message' || evt.type === 'complete') {
-          const text = evt.text || evt.content || '';
-          if (text) {
-            updateMessage(assistantId, (prev: ChatMessage) => ({
-              content: (prev.content || '') + text,
-              thinking: false,
-            }));
-          }
+          if (evt.text) textChunk = evt.text;
+        } else if (evt.type === 'result') {
+          // Final result event — extract text
+          textChunk = evt.result || evt.text || evt.content || '';
+        } else if (evt.type === 'content_block_delta') {
+          textChunk = evt.delta?.text || evt.text || '';
         } else if (evt.type === 'error') {
           updateMessage(assistantId, {
             error: true,
@@ -56,24 +73,31 @@ export function useOpenClaude() {
           });
           setIsThinking(false);
           pendingAssistantRef.current = null;
+          return;
+        }
+
+        if (textChunk) {
+          updateMessage(assistantId, (prev: ChatMessage) => ({
+            content: (prev.content || '') + textChunk,
+            thinking: false,
+          }));
         }
       },
     );
 
-    const offStderr = window.openclaude?.onStderr((data: { sessionId: string; text: string }) => {
-      if (data.sessionId !== SESSION_ID) return;
-      // Append stderr to current assistant message if any
-      const assistantId = pendingAssistantRef.current;
-      if (assistantId && data.text) {
-        // Only show if looks like an error
-        if (/error|fail|exception/i.test(data.text)) {
-          updateMessage(assistantId, {
+    const offStderr = window.openclaude?.onStderr(
+      (data: { sessionId: string; text: string }) => {
+        if (data.sessionId !== SESSION_ID) return;
+        const assistantId = pendingAssistantRef.current;
+        // Only show stderr as an error if it actually looks like one
+        if (assistantId && data.text && /error|fail|exception|invalid|required/i.test(data.text)) {
+          updateMessage(assistantId, (prev: ChatMessage) => ({
             error: true,
-            content: `⚠️ ${data.text}`,
-          });
+            content: (prev.content || '') + `\n\n⚠️ ${data.text}`,
+          }));
         }
-      }
-    });
+      },
+    );
 
     const offClose = window.openclaude?.onClose(
       (data: { sessionId: string; code: number }) => {
@@ -84,7 +108,21 @@ export function useOpenClaude() {
           updateMessage(assistantId, { thinking: false });
           pendingAssistantRef.current = null;
         }
-        sessionStartedRef.current = false;
+        // Non-zero exit code with no content → likely an error
+        if (data.code !== 0 && data.code !== null && assistantId) {
+          const current = useStore.getState().currentMessages;
+          const msg = current.find((m) => m.id === assistantId);
+          if (msg && !msg.content && !msg.error) {
+            updateMessage(assistantId, {
+              error: true,
+              content: `❌ OpenClaude exited with code ${data.code}. Verifique as configurações (API key, modelo, provider).`,
+            });
+          }
+        }
+        // After a successful prompt, subsequent messages should use --continue
+        if (data.code === 0) {
+          hasPriorMessageRef.current = true;
+        }
       },
     );
 
@@ -112,35 +150,9 @@ export function useOpenClaude() {
     };
   }, [updateMessage, setIsThinking]);
 
-  const ensureSession = useCallback(async () => {
-    if (sessionStartedRef.current) return true;
-    const modelInfo = findModel(selectedModel);
-    const apiKey = settings.apiKey || '';
-    const baseUrl = settings.baseUrl || modelInfo?.provider.defaultBaseUrl || '';
-    const provider = modelInfo?.provider.id || 'openai';
-
-    const result = await window.openclaude?.startSession(SESSION_ID, {
-      model: selectedModel,
-      apiKey,
-      baseUrl,
-      provider,
-      systemPrompt: settings.systemPrompt,
-      temperature: settings.temperature,
-      maxTokens: settings.maxTokens,
-      customArgs: settings.customArgs,
-    });
-
-    if (result?.ok) {
-      sessionStartedRef.current = true;
-      return true;
-    }
-    return false;
-  }, [selectedModel, settings]);
-
   const sendMessage = useCallback(
     async (text: string) => {
-      if (!text.trim()) return;
-      if (isThinking) return;
+      if (!text.trim() || isThinking) return;
 
       // Add user message
       const userMsg: ChatMessage = {
@@ -166,29 +178,57 @@ export function useOpenClaude() {
       pendingAssistantRef.current = assistantId;
       setIsThinking(true);
 
-      // Ensure session is up
-      const ok = await ensureSession();
-      if (!ok) {
+      // Build options
+      const modelInfo = findModel(selectedModel);
+      const apiKey = settings.apiKey || '';
+      const baseUrl = settings.baseUrl || modelInfo?.provider.defaultBaseUrl || '';
+      const provider = modelInfo?.provider.id || 'openai';
+
+      const options = {
+        model: selectedModel,
+        apiKey,
+        baseUrl,
+        provider,
+        systemPrompt: settings.systemPrompt,
+        temperature: settings.temperature,
+        maxTokens: settings.maxTokens,
+        customArgs: settings.customArgs,
+        continueConversation: hasPriorMessageRef.current,
+      };
+
+      // Run the prompt — this spawns a new openclaude process with the
+      // prompt as a CLI arg (no more stdin streaming, no more JSON errors).
+      try {
+        const result = await window.openclaude?.sendToSession(
+          SESSION_ID,
+          text,
+          options,
+        );
+        if (!result?.ok) {
+          updateMessage(assistantId, {
+            error: true,
+            content:
+              '❌ Não foi possível iniciar o OpenClaude. Verifique se o CLI está instalado e tente novamente.',
+            thinking: false,
+          });
+          setIsThinking(false);
+          pendingAssistantRef.current = null;
+        }
+      } catch (e: any) {
         updateMessage(assistantId, {
           error: true,
-          content:
-            '❌ Não foi possível iniciar a sessão do OpenClaude. Verifique se o CLI está instalado e tente novamente.',
+          content: `❌ Erro ao enviar mensagem: ${e?.message || e}`,
           thinking: false,
         });
         setIsThinking(false);
         pendingAssistantRef.current = null;
-        return;
       }
-
-      // Send the text
-      await window.openclaude?.sendToSession(SESSION_ID, text);
     },
-    [addMessage, updateMessage, selectedModel, isThinking, ensureSession, setIsThinking],
+    [addMessage, updateMessage, selectedModel, isThinking, setIsThinking, settings],
   );
 
   const stop = useCallback(() => {
     window.openclaude?.stopSession(SESSION_ID);
-    sessionStartedRef.current = false;
     setIsThinking(false);
     const assistantId = pendingAssistantRef.current;
     if (assistantId) {
@@ -197,5 +237,11 @@ export function useOpenClaude() {
     }
   }, [setIsThinking, updateMessage]);
 
-  return { sendMessage, stop, isThinking };
+  // Reset conversation state (called when user starts a new chat)
+  const resetConversation = useCallback(() => {
+    hasPriorMessageRef.current = false;
+    pendingAssistantRef.current = null;
+  }, []);
+
+  return { sendMessage, stop, isThinking, resetConversation };
 }

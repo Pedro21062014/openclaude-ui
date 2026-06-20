@@ -320,10 +320,10 @@ async function ensureOpenClaude() {
 }
 
 // -------------------------------------------------------------
-// OpenClaude chat session (long-lived process)
+// OpenClaude prompt execution (1 process per message)
 // -------------------------------------------------------------
 
-interface SessionOptions {
+interface PromptOptions {
   model: string;
   apiKey?: string;
   baseUrl?: string;
@@ -332,29 +332,30 @@ interface SessionOptions {
   temperature?: number;
   maxTokens?: number;
   customArgs?: string;
+  // Optional: continue previous conversation (use --continue flag)
+  continueConversation?: boolean;
+  // Optional: image attachments (file paths)
+  imagePaths?: string[];
 }
 
-const sessions = new Map<string, ChildProcess>();
+// Track running processes by sessionId so we can stop them.
+const runningProcesses = new Map<string, ChildProcess>();
+// Track whether we've already started a conversation in this app session
+// (so subsequent messages can use --continue to maintain context).
+let hasPriorConversation = false;
 
 /**
  * Build the env vars OpenClaude actually reads.
- *
- * OpenClaude (the real @gitlawb/openclaude CLI) does NOT accept
- * --api-key or --base-url flags. Instead, it reads provider credentials
- * from environment variables. This helper translates the UI settings
- * (apiKey + baseUrl + provider) into the right env vars for each provider.
- *
- * See https://github.com/Gitlawb/openclaude README for the full list.
+ * (See previous commit for full explanation — credentials come from env
+ * vars, not CLI flags, because openclaude doesn't accept --api-key etc.)
  */
-function buildSessionEnv(options: SessionOptions): NodeJS.ProcessEnv {
+function buildSessionEnv(options: PromptOptions): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
 
   const provider = (options.provider || 'openai').toLowerCase();
   const apiKey = options.apiKey || '';
   const baseUrl = options.baseUrl || '';
 
-  // OpenAI-compatible providers (default path)
-  // OpenClaude reads OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL.
   if (provider === 'openai' || provider === 'openrouter' || provider === 'deepseek' || provider === 'zai' || provider === 'qwen' || provider === 'mistral' || provider === 'groq' || provider === 'together' || provider === 'fireworks' || provider === 'perplexity' || provider === 'xai' || provider === 'openai-compatible') {
     env.CLAUDE_CODE_USE_OPENAI = '1';
     if (apiKey) env.OPENAI_API_KEY = apiKey;
@@ -375,67 +376,79 @@ function buildSessionEnv(options: SessionOptions): NodeJS.ProcessEnv {
     if (apiKey) env.GITHUB_TOKEN = apiKey;
     if (options.model) env.OPENAI_MODEL = options.model;
   } else {
-    // Fallback: treat as OpenAI-compatible
     env.CLAUDE_CODE_USE_OPENAI = '1';
     if (apiKey) env.OPENAI_API_KEY = apiKey;
     if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
     if (options.model) env.OPENAI_MODEL = options.model;
   }
 
-  // OpenClaude-specific non-interactive flag
   env.OPENCLAUDE_NON_INTERACTIVE = '1';
-
   return env;
 }
 
 /**
- * Start an OpenClaude chat session as a long-lived child process.
+ * Run a single OpenClaude prompt.
  *
- * Real CLI interface (verified via `openclaude --help` on v0.19.0):
+ * Each call spawns a NEW openclaude process with the prompt as a CLI arg.
+ * Output is streamed as NDJSON events on stdout, forwarded to the renderer
+ * via 'openclaude:stream' IPC events.
+ *
+ * For conversation continuity, the second and subsequent calls pass
+ * --continue so openclaude resumes the most recent conversation in the
+ * working directory.
+ *
+ * Real CLI interface (verified on @gitlawb/openclaude v0.19.0):
  *   openclaude -p \
  *     --output-format stream-json \
- *     --input-format stream-json \
+ *     --verbose \
  *     --include-partial-messages \
+ *     --permission-mode bypassPermissions \
+ *     [--continue] \
  *     --model <model> \
- *     --system-prompt <prompt> \
  *     --provider <provider> \
- *     [prompt]
- *
- * The session stays alive and accepts new prompts via stdin (one JSON
- * message per line in the stream-json input format).
- *
- * Output is NDJSON (one event per line) on stdout.
+ *     --system-prompt <prompt> \
+ *     <user prompt>
  */
-function startSession(sessionId: string, options: SessionOptions) {
-  if (sessions.has(sessionId)) {
-    return { ok: false, error: 'Session already exists' };
+function runPrompt(sessionId: string, prompt: string, options: PromptOptions) {
+  // If there's already a process running for this sessionId, kill it.
+  const existing = runningProcesses.get(sessionId);
+  if (existing) {
+    try {
+      existing.stdin?.end();
+      existing.kill('SIGTERM');
+    } catch {
+      /* ignore */
+    }
+    runningProcesses.delete(sessionId);
   }
 
   const args: string[] = [];
 
-  // --print mode (non-interactive, reads prompt from arg or stdin)
+  // --print mode (non-interactive)
   args.push('-p');
-  // Stream JSON output (NDJSON events)
+  // Stream JSON output (NDJSON events on stdout)
   args.push('--output-format', 'stream-json');
-  // stream-json output requires --verbose (otherwise openclaude errors out)
+  // stream-json output REQUIRES --verbose (openclaude errors out otherwise)
   args.push('--verbose');
-  // Accept stream-json input via stdin
-  args.push('--input-format', 'stream-json');
-  // Emit partial message chunks as they arrive
+  // Emit partial message chunks as they arrive (for live token streaming)
   args.push('--include-partial-messages');
-  // Skip permission prompts (we're non-interactive)
+  // Skip y/n permission prompts since we're non-interactive
   args.push('--permission-mode', 'bypassPermissions');
+
+  // Continue previous conversation if requested
+  // (openclaude's --continue resumes the most recent conversation in cwd)
+  if (options.continueConversation || hasPriorConversation) {
+    args.push('--continue');
+  }
 
   // Model
   if (options.model) {
     args.push('--model', options.model);
   }
 
-  // Provider (anthropic, openai, gemini, github, ollama, etc.)
-  // Note: most provider credentials are read from env vars (see buildSessionEnv).
+  // Provider
   if (options.provider) {
     const p = options.provider.toLowerCase();
-    // Map our UI provider IDs to openclaude's --provider values
     const providerMap: Record<string, string> = {
       claude: 'anthropic',
       anthropic: 'anthropic',
@@ -444,7 +457,6 @@ function startSession(sessionId: string, options: SessionOptions) {
       google: 'gemini',
       ollama: 'ollama',
       github: 'github',
-      // OpenAI-compatible providers — use 'openai' provider type
       openrouter: 'openai',
       deepseek: 'openai',
       zai: 'openai',
@@ -460,21 +472,24 @@ function startSession(sessionId: string, options: SessionOptions) {
     args.push('--provider', ocProvider);
   }
 
-  // System prompt
-  if (options.systemPrompt) {
+  // System prompt (only pass on first message — openclaude remembers it
+  // for continued conversations)
+  if (options.systemPrompt && !options.continueConversation && !hasPriorConversation) {
     args.push('--system-prompt', options.systemPrompt);
   }
 
-  // Append any custom args the user specified in Settings
+  // Custom CLI args from settings
   if (options.customArgs) {
     args.push(...options.customArgs.split(/\s+/).filter(Boolean));
   }
 
+  // The prompt itself — pass as a positional argument.
+  // IMPORTANT: do NOT use --input-format stream-json (that expects JSON
+  // on stdin and was the cause of the "Unexpected token 'o'" error).
+  // Just pass the text prompt directly as the last arg.
+  args.push(prompt);
+
   // Determine the command to spawn.
-  // ocStatus.path could be:
-  //   - an absolute path like /usr/local/bin/openclaude
-  //   - just 'openclaude' (rely on PATH)
-  //   - 'npx openclaude' (legacy fallback, shouldn't happen with real install)
   let cmd: string = ocStatus.path || 'openclaude';
   let finalArgs: string[] = args;
   if (cmd === 'npx openclaude') {
@@ -487,23 +502,28 @@ function startSession(sessionId: string, options: SessionOptions) {
   const child = spawn(cmd, finalArgs, {
     env: sessionEnv,
     shell: process.platform === 'win32',
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'], // stdin not needed
+    cwd: os.homedir(), // continue conversations in home dir
   });
 
-  sessions.set(sessionId, child);
-
+  runningProcesses.set(sessionId, child);
   const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
 
+  // Buffer to handle partial JSON lines (NDJSON events may span chunks)
+  let stdoutBuffer = '';
   child.stdout?.on('data', (chunk) => {
-    const text = chunk.toString();
-    // Try to parse NDJSON stream events
-    for (const line of text.split(/\r?\n/)) {
-      if (!line.trim()) continue;
+    stdoutBuffer += chunk.toString();
+    // Process complete lines
+    let nlIdx: number;
+    while ((nlIdx = stdoutBuffer.indexOf('\n')) >= 0) {
+      const line = stdoutBuffer.slice(0, nlIdx).trim();
+      stdoutBuffer = stdoutBuffer.slice(nlIdx + 1);
+      if (!line) continue;
       try {
         const evt = JSON.parse(line);
         win?.webContents.send('openclaude:stream', { sessionId, event: evt });
       } catch {
-        // Fallback: raw text
+        // Line is not valid JSON — send as raw text event
         win?.webContents.send('openclaude:stream', {
           sessionId,
           event: { type: 'text', text: line },
@@ -512,17 +532,43 @@ function startSession(sessionId: string, options: SessionOptions) {
     }
   });
 
+  // Same buffering for stderr
+  let stderrBuffer = '';
   child.stderr?.on('data', (chunk) => {
-    const text = chunk.toString();
-    win?.webContents.send('openclaude:stderr', { sessionId, text });
+    stderrBuffer += chunk.toString();
+    let nlIdx: number;
+    while ((nlIdx = stderrBuffer.indexOf('\n')) >= 0) {
+      const line = stderrBuffer.slice(0, nlIdx).trim();
+      stderrBuffer = stderrBuffer.slice(nlIdx + 1);
+      if (line) {
+        win?.webContents.send('openclaude:stderr', { sessionId, text: line });
+      }
+    }
   });
 
   child.on('close', (code) => {
-    sessions.delete(sessionId);
+    // Flush any remaining buffered content
+    if (stdoutBuffer.trim()) {
+      try {
+        const evt = JSON.parse(stdoutBuffer.trim());
+        win?.webContents.send('openclaude:stream', { sessionId, event: evt });
+      } catch {
+        win?.webContents.send('openclaude:stream', {
+          sessionId,
+          event: { type: 'text', text: stdoutBuffer.trim() },
+        });
+      }
+    }
+    runningProcesses.delete(sessionId);
+    // Mark that we've had a conversation so subsequent messages use --continue
+    if (code === 0) {
+      hasPriorConversation = true;
+    }
     win?.webContents.send('openclaude:close', { sessionId, code });
   });
 
   child.on('error', (err) => {
+    runningProcesses.delete(sessionId);
     win?.webContents.send('openclaude:error', {
       sessionId,
       error: err.message,
@@ -532,23 +578,15 @@ function startSession(sessionId: string, options: SessionOptions) {
   return { ok: true };
 }
 
-function sendToSession(sessionId: string, text: string) {
-  const child = sessions.get(sessionId);
-  if (!child || !child.stdin) return { ok: false, error: 'No active session' };
-  child.stdin.write(text + '\n');
-  return { ok: true };
-}
-
-function stopSession(sessionId: string) {
-  const child = sessions.get(sessionId);
+function stopPrompt(sessionId: string) {
+  const child = runningProcesses.get(sessionId);
   if (!child) return;
   try {
-    child.stdin?.end();
     child.kill('SIGTERM');
   } catch {
     /* ignore */
   }
-  sessions.delete(sessionId);
+  runningProcesses.delete(sessionId);
 }
 
 // -------------------------------------------------------------
@@ -682,14 +720,27 @@ app.whenReady().then(async () => {
     return ocStatus;
   });
 
-  ipcMain.handle('session:start', (_e, sessionId: string, options: SessionOptions) =>
-    startSession(sessionId, options),
-  );
-  ipcMain.handle('session:send', (_e, sessionId: string, text: string) =>
-    sendToSession(sessionId, text),
+  ipcMain.handle('session:start', () => {
+    // No-op kept for backwards compat — sessions are now per-prompt.
+    return { ok: true };
+  });
+  ipcMain.handle(
+    'session:send',
+    (_e, sessionId: string, text: string, options: PromptOptions) =>
+      runPrompt(sessionId, text, options),
   );
   ipcMain.handle('session:stop', (_e, sessionId: string) => {
-    stopSession(sessionId);
+    stopPrompt(sessionId);
+    return { ok: true };
+  });
+  // Also expose a clearer alias
+  ipcMain.handle(
+    'prompt:run',
+    (_e, sessionId: string, prompt: string, options: PromptOptions) =>
+      runPrompt(sessionId, prompt, options),
+  );
+  ipcMain.handle('prompt:stop', (_e, sessionId: string) => {
+    stopPrompt(sessionId);
     return { ok: true };
   });
 
@@ -699,12 +750,39 @@ app.whenReady().then(async () => {
     return { ok: true };
   });
 
-  ipcMain.handle('dialog:openFile', async () => {
+  ipcMain.handle('dialog:openFile', async (_e, opts?: { multiple?: boolean; images?: boolean }) => {
     if (!mainWindow) return null;
+    const properties: ('openFile' | 'multiSelections')[] = ['openFile'];
+    if (opts?.multiple) properties.push('multiSelections');
     const r = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
+      properties,
+      filters: opts?.images
+        ? [
+            { name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] },
+            { name: 'Todos os arquivos', extensions: ['*'] },
+          ]
+        : [{ name: 'Todos os arquivos', extensions: ['*'] }],
     });
-    return r.canceled ? null : r.filePaths[0];
+    if (r.canceled) return null;
+    return opts?.multiple ? r.filePaths : r.filePaths[0];
+  });
+
+  // Read an image file and return as base64 data URL (for preview in UI).
+  ipcMain.handle('file:readAsDataURL', async (_e, filePath: string) => {
+    try {
+      const buf = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).slice(1).toLowerCase();
+      const mime =
+        ext === 'png' ? 'image/png' :
+        ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+        ext === 'gif' ? 'image/gif' :
+        ext === 'webp' ? 'image/webp' :
+        ext === 'bmp' ? 'image/bmp' :
+        'application/octet-stream';
+      return `data:${mime};base64,${buf.toString('base64')}`;
+    } catch (e: any) {
+      return null;
+    }
   });
 
   createWindow();
@@ -722,5 +800,5 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
-  for (const id of sessions.keys()) stopSession(id);
+  for (const id of runningProcesses.keys()) stopPrompt(id);
 });

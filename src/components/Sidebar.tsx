@@ -1,4 +1,5 @@
 import { useStore } from '@/hooks/useStore';
+import { useOpenClaude } from '@/hooks/useOpenClaude';
 import { Settings, Plus, MessageSquare, Trash2, Github, Terminal } from 'lucide-react';
 
 const CLAUDE_LOGO =
@@ -15,10 +16,15 @@ export function Sidebar() {
     setUserSkippedInstall,
     ocStatus,
   } = useStore();
+  // Pull resetConversation from the hook so the "New chat" button actually
+  // resets openclaude's --continue state — otherwise subsequent messages
+  // would still be appended to the previous (now-cleared) conversation.
+  const { resetConversation } = useOpenClaude();
 
   const collapsed = settings.sidebarCollapsed;
 
   const handleNewChat = () => {
+    resetConversation();
     clearMessages();
   };
 
