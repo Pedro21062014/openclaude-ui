@@ -14,15 +14,62 @@ import {
   EyeOff,
   Check,
   RefreshCw,
+  Download,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import type { AppSettings } from '@/types';
 
 interface SettingsModalProps {}
 
 export function SettingsModal({}: SettingsModalProps) {
-  const { settings, setSettings, setShowSettings, ocStatus } = useStore();
+  const { settings, setSettings, setShowSettings, ocStatus, setOcStatus } =
+    useStore();
   const [local, setLocal] = useState<AppSettings>(settings);
   const [showApiKey, setShowApiKey] = useState(false);
+
+  // Local UI state for the OpenClaude tab buttons.
+  // The global ocStatus is updated by IPC pushes from the main process,
+  // but we also track local "is busy" flags so the buttons show a spinner
+  // immediately on click (before the next IPC status push arrives).
+  const [verifying, setVerifying] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [localMessage, setLocalMessage] = useState<{
+    type: 'info' | 'success' | 'error';
+    text: string;
+  } | null>(null);
+
+  // Subscribe to OpenClaude status pushes from the main process so the
+  // modal updates in real-time while install/detect is running.
+  useEffect(() => {
+    const off = window.openclaude?.onOpenClaudeStatus((s: any) => {
+      setOcStatus(s);
+      // Sync local busy flags with global status
+      if (s.installing) {
+        setInstalling(true);
+        setLocalMessage({ type: 'info', text: 'Instalando OpenClaude CLI...' });
+      } else if (s.detecting) {
+        setVerifying(true);
+        setLocalMessage({ type: 'info', text: 'Verificando...' });
+      } else {
+        setVerifying(false);
+        setInstalling(false);
+        if (s.error) {
+          setLocalMessage({ type: 'error', text: s.error });
+        } else if (s.installed) {
+          setLocalMessage({
+            type: 'success',
+            text: `OpenClaude ${s.version} está pronto para uso.`,
+          });
+        } else {
+          setLocalMessage(null);
+        }
+      }
+    });
+    return () => {
+      off?.();
+    };
+  }, [setOcStatus]);
   const [tab, setTab] = useState<'model' | 'openclaude' | 'appearance' | 'advanced'>(
     'model',
   );
@@ -34,6 +81,59 @@ export function SettingsModal({}: SettingsModalProps) {
 
   const update = (patch: Partial<AppSettings>) => {
     setLocal((prev) => ({ ...prev, ...patch }));
+  };
+
+  // Verify OpenClaude installation (runs `openclaude --version` via main process)
+  const handleVerify = async () => {
+    if (verifying || installing) return;
+    setVerifying(true);
+    setLocalMessage({ type: 'info', text: 'Verificando instalação...' });
+    try {
+      const status = await window.openclaude?.detectOpenClaude();
+      if (status) {
+        setOcStatus(status);
+        if (status.installed) {
+          setLocalMessage({
+            type: 'success',
+            text: `OpenClaude ${status.version} detectado em ${status.path}.`,
+          });
+        } else {
+          setLocalMessage({
+            type: 'error',
+            text: 'OpenClaude não encontrado. Clique em "Instalar agora".',
+          });
+        }
+      }
+    } catch (e: any) {
+      setLocalMessage({
+        type: 'error',
+        text: `Erro ao verificar: ${e?.message || e}`,
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // Install OpenClaude globally via npm
+  const handleInstall = async () => {
+    if (installing) return;
+    setInstalling(true);
+    setLocalMessage({
+      type: 'info',
+      text: 'Iniciando instalação via npm install -g openclaude...',
+    });
+    try {
+      await window.openclaude?.installOpenClaude();
+      // The IPC status pushes will keep updating localMessage as install
+      // progresses. We don't need to do anything else here — the
+      // useEffect subscription handles the rest.
+    } catch (e: any) {
+      setLocalMessage({
+        type: 'error',
+        text: `Erro ao iniciar instalação: ${e?.message || e}`,
+      });
+      setInstalling(false);
+    }
   };
 
   const handleSave = () => {
@@ -230,35 +330,60 @@ export function SettingsModal({}: SettingsModalProps) {
 
             {tab === 'openclaude' && (
               <div className="space-y-5">
-                {/* OpenClaude status */}
+                {/* OpenClaude status card */}
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
                   <div className="mb-3 flex items-center gap-2">
                     <Terminal className="h-5 w-5 text-[var(--accent)]" />
                     <h3 className="text-sm font-semibold text-[var(--text-primary)]">
                       Status do OpenClaude CLI
                     </h3>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <div className="text-xs text-[var(--text-secondary)]">
-                        Status
-                      </div>
-                      <div
-                        className={`font-medium ${
+                    {/* Status pill */}
+                    <span
+                      className={`ml-auto flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        ocStatus.installed
+                          ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                          : ocStatus.installing || ocStatus.detecting
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                      }`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
                           ocStatus.installed
-                            ? 'text-green-500'
-                            : 'text-red-500'
+                            ? 'bg-green-500'
+                            : ocStatus.installing || ocStatus.detecting
+                              ? 'bg-amber-500 animate-pulse'
+                              : 'bg-red-500'
                         }`}
-                      >
-                        {ocStatus.installed ? '✓ Instalado' : '✗ Não instalado'}
-                      </div>
-                    </div>
+                      />
+                      {ocStatus.installed
+                        ? 'Instalado'
+                        : ocStatus.installing
+                          ? 'Instalando...'
+                          : ocStatus.detecting
+                            ? 'Verificando...'
+                            : 'Não instalado'}
+                    </span>
+                  </div>
+
+                  {/* Info grid */}
+                  <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <div className="text-xs text-[var(--text-secondary)]">
                         Versão
                       </div>
                       <div className="font-mono text-[var(--text-primary)]">
                         {ocStatus.version || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[var(--text-secondary)]">
+                        Progresso
+                      </div>
+                      <div className="font-mono text-[var(--text-primary)]">
+                        {ocStatus.installing
+                          ? `${Math.round(ocStatus.installProgress)}%`
+                          : '—'}
                       </div>
                     </div>
                     <div className="col-span-2">
@@ -270,22 +395,99 @@ export function SettingsModal({}: SettingsModalProps) {
                       </div>
                     </div>
                   </div>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={async () => {
-                        await window.openclaude?.detectOpenClaude();
-                      }}
-                      className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
+
+                  {/* Progress bar during install */}
+                  {ocStatus.installing && (
+                    <div className="mt-3">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]">
+                        <div
+                          className="thinking-bar h-full transition-all duration-300"
+                          style={{ width: `${ocStatus.installProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Local feedback message */}
+                  {localMessage && (
+                    <div
+                      className={`mt-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs ${
+                        localMessage.type === 'success'
+                          ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                          : localMessage.type === 'error'
+                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                            : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
+                      }`}
                     >
-                      <RefreshCw className="h-3 w-3" />
-                      Verificar novamente
+                      {localMessage.type === 'error' ? (
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                      ) : localMessage.type === 'success' ? (
+                        <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                      ) : (
+                        <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+                      )}
+                      <span>{localMessage.text}</span>
+                    </div>
+                  )}
+
+                  {/* Install log (collapsible during install) */}
+                  {ocStatus.installLog && (
+                    <details className="mt-3 group">
+                      <summary className="cursor-pointer text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                        Ver log de instalação ({ocStatus.installLog.split('\n').length} linhas)
+                      </summary>
+                      <pre className="selectable mt-2 max-h-40 overflow-auto rounded-md bg-[var(--bg-secondary)] p-2 font-mono text-[10px] leading-relaxed text-[var(--text-secondary)]">
+                        {ocStatus.installLog}
+                        {ocStatus.error && (
+                          <span className="text-red-500">{ocStatus.error}</span>
+                        )}
+                      </pre>
+                    </details>
+                  )}
+
+                  {/* Action buttons */}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      onClick={handleVerify}
+                      disabled={verifying || installing}
+                      className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {verifying ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3" />
+                      )}
+                      {verifying ? 'Verificando...' : 'Verificar novamente'}
                     </button>
+
                     {!ocStatus.installed && (
                       <button
-                        onClick={() => window.openclaude?.installOpenClaude()}
-                        className="flex items-center gap-1.5 rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--accent-hover)]"
+                        onClick={handleInstall}
+                        disabled={installing}
+                        className="flex items-center gap-1.5 rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Instalar agora
+                        {installing ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Download className="h-3 w-3" />
+                        )}
+                        {installing ? 'Instalando...' : 'Instalar agora'}
+                      </button>
+                    )}
+
+                    {ocStatus.installed && (
+                      <button
+                        onClick={handleInstall}
+                        disabled={installing}
+                        className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Reinstala/atualiza o OpenClaude CLI"
+                      >
+                        {installing ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Download className="h-3 w-3" />
+                        )}
+                        {installing ? 'Atualizando...' : 'Atualizar'}
                       </button>
                     )}
                   </div>
@@ -545,16 +747,24 @@ function Toggle({
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
+  // Track dimensions: container is w-11 (44px) h-6 (24px).
+  // Knob is h-5 w-5 (20px). With p-0.5 (2px) padding on the container,
+  // the knob slides between left (translate-x-0) and right (translate-x-5).
+  // Using padding instead of absolute positioning keeps the knob perfectly
+  // centered vertically and symmetric horizontally.
   return (
     <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 rounded-full transition-colors ${
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 ${
         checked ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
       }`}
     >
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-          checked ? 'translate-x-5' : 'translate-x-0.5'
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-out ${
+          checked ? 'translate-x-5' : 'translate-x-0'
         }`}
       />
     </button>
