@@ -1,29 +1,45 @@
 import { useEffect, useState } from 'react';
-import Lottie from 'lottie-react';
-import claudeAnimation from '@/assets/claude-animation.json';
+
+// Type declaration for the custom <dotlottie-wc> element.
+// The actual element is registered by the script loaded in index.html:
+//   https://unpkg.com/@lottiefiles/dotlottie-wc@0.9.14/dist/dotlottie-wc.js
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'dotlottie-wc': React.DetailedHTMLProps<
+        React.HTMLAttributes<HTMLElement> & {
+          src?: string;
+          autoplay?: boolean;
+          loop?: boolean;
+        },
+        HTMLElement
+      >;
+    }
+  }
+}
 
 interface ThinkingAnimationProps {
+  /** Size in px of the Lottie animation (the text size is fixed at 15px). */
   size?: number;
+  /** Show the "Pensando..." text next to the animation. Default: true. */
   showText?: boolean;
+  /** Override the text label. Default: "Pensando". */
   text?: string;
 }
 
 /**
- * Thinking animation using the user-provided Lottie file (claude.json).
+ * Thinking animation using the user-provided HTML design.
  *
- * The Lottie file is the "Clawd-Laptop" animation — a small Claude-like
- * character that appears to be "working" on a laptop. We render it at the
- * requested size and loop it.
+ * Renders the Lottie animation from lottie.host (loaded via the
+ * dotlottie-wc Web Component) at the requested size, with the
+ * "Pensando..." text next to it using a gradient shine animation
+ * (gray → white → gray shifting across the text in a 12s loop).
  *
- * Default size is 80px — small enough to fit inline in chat messages
- * without dominating the screen, but large enough to see the animation
- * detail. Callers can override with the `size` prop.
- *
- * A subtle pulsing text indicator ("Pensando...") appears next to it when
- * showText is true.
+ * The dotlottie-wc script is loaded once in index.html so it's
+ * available across the whole app.
  */
 export function ThinkingAnimation({
-  size = 80,
+  size = 68,
   showText = true,
   text = 'Pensando',
 }: ThinkingAnimationProps) {
@@ -37,26 +53,43 @@ export function ThinkingAnimation({
   }, []);
 
   return (
-    <div className="flex items-center gap-3 py-2">
-      <div
-        style={{ width: size, height: size }}
-        className="flex-shrink-0"
-      >
-        <Lottie
-          animationData={claudeAnimation}
-          loop={true}
-          autoplay={true}
-          style={{ width: '100%', height: '100%' }}
-          rendererSettings={{
-            preserveAspectRatio: 'xMidYMid meet',
-          }}
-        />
-      </div>
+    <div
+      className="thinking-wrapper"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '2px',
+        overflow: 'visible',
+      }}
+    >
+      {/* Lottie animation via dotlottie-wc Web Component */}
+      {/* eslint-disable-next-line react/no-unknown-property */}
+      <dotlottie-wc
+        src="https://lottie.host/8db46587-6835-44d6-a755-f660ea2c33c0/yED2rcsFfA.lottie"
+        autoplay
+        loop
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          flexShrink: 0,
+          marginRight: '-10px',
+          transform: 'translateY(-3px)',
+        }}
+      />
 
       {showText && (
-        <span className="text-sm text-[var(--text-secondary)]">
+        <span
+          className="thinking-text-shine"
+          style={{
+            fontSize: '15px',
+            fontWeight: 500,
+            letterSpacing: '.2px',
+            lineHeight: 1,
+            whiteSpace: 'nowrap',
+          }}
+        >
           {text}
-          <span className="inline-block w-4 text-left">{dots}</span>
+          <span style={{ display: 'inline-block', width: '1ch' }}>{dots}</span>
         </span>
       )}
     </div>

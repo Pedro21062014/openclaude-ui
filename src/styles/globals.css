@@ -127,6 +127,51 @@ body {
   }
 }
 
+/* Shine animation for the "Pensando..." text next to the Lottie animation.
+ * Gradient goes gray → white → gray → white → gray, sized at 300% so the
+ * bright band sweeps across the text. 12s linear infinite — slow and calm. */
+@keyframes shine {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+.thinking-text-shine {
+  background: linear-gradient(
+    90deg,
+    #666666 0%,
+    #ffffff 35%,
+    #666666 55%,
+    #ffffff 75%,
+    #666666 100%
+  );
+  background-size: 300% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 12s linear infinite;
+}
+
+/* On light theme, invert the gradient so the text is visible against
+ * the light background (light gray → dark → light gray). */
+:root:not(.dark) .thinking-text-shine {
+  background: linear-gradient(
+    90deg,
+    #999999 0%,
+    #1a1816 35%,
+    #999999 55%,
+    #1a1816 75%,
+    #999999 100%
+  );
+  background-size: 300% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 /* Animated gradient bar (loading bar style) */
 .thinking-bar {
   background: linear-gradient(
