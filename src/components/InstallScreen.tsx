@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '@/hooks/useStore';
+import { ThinkingAnimation } from './ThinkingAnimation';
 
 // App version (kept in sync with package.json via Vite's define plugin would be ideal,
 // but hardcoding here is simpler and matches the release tag)
-const APP_VERSION = '1.0.12';
+const APP_VERSION = '1.0.13';
 
 const CLAUDE_CODE_LOGO =
   'https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/light/claudecode-color.png';
@@ -180,9 +181,8 @@ export function InstallScreen() {
 
       {/* Detecting spinner (subtle, fast) */}
       {isDetecting && (
-        <div className="mb-6 flex items-center gap-2.5 text-sm text-[var(--text-secondary)]">
-          <div className="thinking-orb !h-4 !w-4" />
-          <span>Verificando...</span>
+        <div className="mb-6">
+          <ThinkingAnimation size={56} text="Verificando" />
         </div>
       )}
 

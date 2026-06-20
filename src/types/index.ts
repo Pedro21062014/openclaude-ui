@@ -17,6 +17,19 @@ export interface ModelOption {
   description?: string;
 }
 
+export interface FileOperation {
+  id: string;
+  type: 'create' | 'edit' | 'delete' | 'read' | 'notebook';
+  tool: string; // 'Write' | 'Edit' | 'NotebookEdit' | 'Bash' | etc.
+  filePath: string;
+  // For Edit operations, the old and new strings (for diff display)
+  oldString?: string;
+  newString?: string;
+  // For Write operations, the full content
+  content?: string;
+  timestamp: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -26,6 +39,11 @@ export interface ChatMessage {
   thinking?: boolean;
   error?: boolean;
   tokens?: number;
+  // File operations performed by the assistant in this message
+  fileOperations?: FileOperation[];
+  // Whether the message has finished streaming (controls when action
+  // buttons and diff button are shown)
+  done?: boolean;
 }
 
 export interface Conversation {

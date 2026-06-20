@@ -18,9 +18,10 @@ export function ChatInterface() {
     currentMessages,
     isThinking,
   } = useStore();
-  const { sendMessage, stop } = useOpenClaude();
+  const { sendMessage, stop, regenerate, editAndResend } = useOpenClaude();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [editTarget, setEditTarget] = useState<{ id: string; content: string } | null>(null);
 
   const selected = findModel(selectedModel);
 
@@ -71,6 +72,25 @@ export function ChatInterface() {
     stop();
   };
 
+  // Regenerate an assistant response — finds the user message before it
+  // and re-sends it (the hook handles truncating + respawning).
+  const handleRegenerate = (assistantMessageId: string) => {
+    regenerate(assistantMessageId);
+  };
+
+  // Edit a user message — opens a small inline editor above the input
+  // where the user can tweak the text and re-send.
+  const handleEditMessage = (messageId: string, content: string) => {
+    setEditTarget({ id: messageId, content });
+  };
+
+  const handleEditSubmit = (newContent: string) => {
+    if (editTarget) {
+      editAndResend(editTarget.id, newContent);
+      setEditTarget(null);
+    }
+  };
+
   return (
     <div className="flex h-full flex-1 flex-col bg-[var(--bg-primary)]">
       {/* Top bar */}
@@ -110,7 +130,11 @@ export function ChatInterface() {
         {currentMessages.length === 0 ? (
           <WelcomeScreen onPickPrompt={handleSend} />
         ) : (
-          <MessageList messages={currentMessages} />
+          <MessageList
+            messages={currentMessages}
+            onRegenerate={handleRegenerate}
+            onEdit={handleEditMessage}
+          />
         )}
 
         {/* Scroll to bottom button */}
@@ -136,6 +160,9 @@ export function ChatInterface() {
             : false
         }
         placeholder={`Conversar com ${selected?.model.name || 'OpenClaude'}...`}
+        editTarget={editTarget}
+        onEditSubmit={handleEditSubmit}
+        onEditCancel={() => setEditTarget(null)}
       />
     </div>
   );

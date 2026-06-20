@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import Lottie from 'lottie-react';
+import claudeAnimation from '@/assets/claude-animation.json';
 
 interface ThinkingAnimationProps {
   size?: number;
@@ -7,11 +9,17 @@ interface ThinkingAnimationProps {
 }
 
 /**
- * The "boitinha" thinking animation with animated gradient.
- * Combines a pulsing gradient orb (Claude-orange palette) with bouncing dots.
+ * Thinking animation using the user-provided Lottie file (claude.json).
+ *
+ * The Lottie file is the "Clawd-Laptop" animation — a small Claude-like
+ * character that appears to be "working" on a laptop. We render it at the
+ * requested size and loop it.
+ *
+ * A subtle pulsing text indicator ("Pensando...") appears next to it when
+ * showText is true.
  */
 export function ThinkingAnimation({
-  size = 28,
+  size = 64,
   showText = true,
   text = 'Pensando',
 }: ThinkingAnimationProps) {
@@ -26,23 +34,19 @@ export function ThinkingAnimation({
 
   return (
     <div className="flex items-center gap-3 py-2">
-      {/* Gradient orb */}
       <div
-        className="thinking-orb flex-shrink-0"
         style={{ width: size, height: size }}
-      />
-
-      {/* Bouncing dots alternative */}
-      <div className="flex items-center gap-1">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="block h-1.5 w-1.5 rounded-full bg-[var(--accent)]"
-            style={{
-              animation: `bounce-dot 1.4s ease-in-out ${i * 0.16}s infinite both`,
-            }}
-          />
-        ))}
+        className="flex-shrink-0"
+      >
+        <Lottie
+          animationData={claudeAnimation}
+          loop={true}
+          autoplay={true}
+          style={{ width: '100%', height: '100%' }}
+          rendererSettings={{
+            preserveAspectRatio: 'xMidYMid meet',
+          }}
+        />
       </div>
 
       {showText && (

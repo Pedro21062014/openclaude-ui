@@ -14,6 +14,11 @@ interface MessageInputProps {
   isThinking: boolean;
   disabled?: boolean;
   placeholder?: string;
+  // Edit mode: when editTarget is set, the input is pre-filled with the
+  // edit content and pressing send calls onEditSubmit instead of onSend.
+  editTarget?: { id: string; content: string } | null;
+  onEditSubmit?: (newContent: string) => void;
+  onEditCancel?: () => void;
 }
 
 // Common openclaude slash commands (from the README + CLI help).
@@ -40,6 +45,9 @@ export function MessageInput({
   isThinking,
   disabled,
   placeholder,
+  editTarget,
+  onEditSubmit,
+  onEditCancel,
 }: MessageInputProps) {
   const [text, setText] = useState('');
   const [images, setImages] = useState<AttachedImage[]>([]);
@@ -55,6 +63,21 @@ export function MessageInput({
       el.style.height = Math.min(el.scrollHeight, 240) + 'px';
     }
   }, [text]);
+
+  // Edit mode: pre-fill the textarea with the edit target content and focus
+  useEffect(() => {
+    if (editTarget) {
+      setText(editTarget.content);
+      setImages([]);
+      setTimeout(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(
+          editTarget.content.length,
+          editTarget.content.length,
+        );
+      }, 0);
+    }
+  }, [editTarget]);
 
   // Detect slash command at start of input
   const slashQuery = text.startsWith('/')
@@ -73,11 +96,19 @@ export function MessageInput({
 
   const handleSend = useCallback(() => {
     if (!text.trim() || isThinking) return;
+    // If we're in edit mode, route to onEditSubmit
+    if (editTarget && onEditSubmit) {
+      onEditSubmit(text.trim());
+      setText('');
+      setImages([]);
+      setSlashOpen(false);
+      return;
+    }
     onSend(text.trim(), images.length > 0 ? images : undefined);
     setText('');
     setImages([]);
     setSlashOpen(false);
-  }, [text, isThinking, images, onSend]);
+  }, [text, isThinking, images, onSend, editTarget, onEditSubmit]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Slash command navigation
@@ -115,6 +146,13 @@ export function MessageInput({
     } else if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !slashOpen) {
       e.preventDefault();
       handleSend();
+    }
+
+    // Esc cancels edit mode
+    if (e.key === 'Escape' && editTarget) {
+      e.preventDefault();
+      setText('');
+      onEditCancel?.();
     }
   };
 
@@ -224,7 +262,8 @@ export function MessageInput({
           <button
             onClick={handleAttachImage}
             title="Anexar imagem"
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            disabled={!!editTarget}
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <Paperclip className="h-5 w-5" />
           </button>
@@ -235,16 +274,35 @@ export function MessageInput({
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            placeholder={placeholder || 'Conversar com OpenClaude...'}
+            placeholder={
+              editTarget
+                ? 'Editando mensagem... (Enter para reenviar, Esc para cancelar)'
+                : placeholder || 'Conversar com OpenClaude...'
+            }
             rows={1}
             className="flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-relaxed text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)] disabled:opacity-50"
             style={{ maxHeight: '240px' }}
           />
 
+          {/* Cancel edit button (only shown in edit mode) */}
+          {editTarget && (
+            <button
+              onClick={() => {
+                setText('');
+                onEditCancel?.();
+              }}
+              title="Cancelar edição"
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
+            >
+              <X className="h-4 w-4" />
+              Cancelar
+            </button>
+          )}
+
           <button
             onClick={handleSend}
             disabled={(!text.trim() && images.length === 0) || isThinking}
-            title="Enviar (Enter)"
+            title={editTarget ? 'Reenviar (Enter)' : 'Enviar (Enter)'}
             className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl transition-all ${
               (text.trim() || images.length > 0) && !isThinking
                 ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]'
@@ -256,12 +314,20 @@ export function MessageInput({
         </div>
 
         <p className="mt-2 flex items-center justify-center gap-3 text-[11px] text-[var(--text-secondary)]/70">
-          <span>Enter para enviar · Shift+Enter para nova linha</span>
-          <span className="opacity-50">·</span>
-          <span className="flex items-center gap-1">
-            <ImageIcon className="h-3 w-3" />
-            Digite / para comandos
-          </span>
+          {editTarget ? (
+            <span className="text-[var(--accent)]">
+              ✏️ Modo edição — Enter para reenviar, Esc para cancelar
+            </span>
+          ) : (
+            <>
+              <span>Enter para enviar · Shift+Enter para nova linha</span>
+              <span className="opacity-50">·</span>
+              <span className="flex items-center gap-1">
+                <ImageIcon className="h-3 w-3" />
+                Digite / para comandos
+              </span>
+            </>
+          )}
         </p>
       </div>
     </div>

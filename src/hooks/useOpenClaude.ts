@@ -1,12 +1,111 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from './useStore';
 import { findModel } from '@/data/models';
-import type { ChatMessage } from '@/types';
+import type { ChatMessage, FileOperation } from '@/types';
 
 const SESSION_ID = 'main-session';
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+/**
+ * Extract file operations from a stream event.
+ *
+ * openclaude emits 'assistant' events with message.content as an array
+ * that may contain tool_use blocks. We look for:
+ *   - Write        → file created (content has the new file content)
+ *   - Edit         → file edited (old_string + new_string for diff)
+ *   - NotebookEdit → notebook cell edited
+ *   - MultiEdit    → multiple edits to one file
+ *
+ * Returns an array of FileOperation objects (may be empty).
+ */
+function extractFileOperations(evt: any): FileOperation[] {
+  const ops: FileOperation[] = [];
+  if (!evt || typeof evt !== 'object') return ops;
+
+  // Look at message.content array for tool_use blocks
+  const content = evt?.message?.content;
+  if (!Array.isArray(content)) return ops;
+
+  for (const block of content) {
+    if (block?.type !== 'tool_use') continue;
+    const toolName = block.name || '';
+    const input = block.input || {};
+    const filePath = input.file_path || input.path || input.notebook_path || '';
+    if (!filePath) continue;
+
+    if (toolName === 'Write') {
+      ops.push({
+        id: uid(),
+        type: 'create',
+        tool: toolName,
+        filePath,
+        content: input.content,
+        timestamp: Date.now(),
+      });
+    } else if (toolName === 'Edit') {
+      ops.push({
+        id: uid(),
+        type: 'edit',
+        tool: toolName,
+        filePath,
+        oldString: input.old_string,
+        newString: input.new_string,
+        timestamp: Date.now(),
+      });
+    } else if (toolName === 'MultiEdit') {
+      // MultiEdit has an array of edits — create one op per edit
+      const edits = input.edits || [];
+      for (const edit of edits) {
+        ops.push({
+          id: uid(),
+          type: 'edit',
+          tool: toolName,
+          filePath,
+          oldString: edit.old_string,
+          newString: edit.new_string,
+          timestamp: Date.now(),
+        });
+      }
+    } else if (toolName === 'NotebookEdit') {
+      ops.push({
+        id: uid(),
+        type: 'notebook',
+        tool: toolName,
+        filePath,
+        oldString: input.old_text,
+        newString: input.new_text,
+        timestamp: Date.now(),
+      });
+    } else if (toolName === 'Bash' && input.command) {
+      // Detect file creation/deletion via bash commands
+      const cmd = input.command as string;
+      // rm/mv/cp/touch/mkdir
+      const rmMatch = cmd.match(/\brm\s+(?:-[rf]+\s+)*([^\s&|;]+)/);
+      const mvMatch = cmd.match(/\bmv\s+([^\s&|;]+)\s+([^\s&|;]+)/);
+      if (rmMatch) {
+        ops.push({
+          id: uid(),
+          type: 'delete',
+          tool: 'Bash',
+          filePath: rmMatch[1],
+          timestamp: Date.now(),
+        });
+      }
+      if (mvMatch) {
+        ops.push({
+          id: uid(),
+          type: 'edit',
+          tool: 'Bash',
+          filePath: mvMatch[2],
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }
+  return ops;
 }
 
 export function useOpenClaude() {
@@ -146,6 +245,23 @@ export function useOpenClaude() {
             thinking: false,
           }));
         }
+
+        // ----- Extract file operations from assistant events -----
+        // When openclaude calls Write/Edit/NotebookEdit/MultiEdit, the
+        // assistant event contains tool_use blocks with the file path and
+        // (for Edit) the old/new strings. We capture these so the UI can
+        // show "Created X" / "Edited Y" indicators and a diff button.
+        if (evt.type === 'assistant' || evt.type === 'message') {
+          const fileOps = extractFileOperations(evt);
+          if (fileOps.length > 0) {
+            updateMessage(assistantId, (prev: ChatMessage) => ({
+              fileOperations: [
+                ...(prev.fileOperations || []),
+                ...fileOps,
+              ],
+            }));
+          }
+        }
       },
     );
 
@@ -169,9 +285,16 @@ export function useOpenClaude() {
         setIsThinking(false);
         const assistantId = pendingAssistantRef.current;
         if (assistantId) {
-          updateMessage(assistantId, { thinking: false });
+          // Mark the message as done — this shows the action buttons
+          // (Copy, Regenerate, Edit) and the diff button (if file ops exist).
+          updateMessage(assistantId, { thinking: false, done: true });
           pendingAssistantRef.current = null;
         }
+        // Persist the conversation to localStorage so the sidebar
+        // history updates and the conversation survives app restart.
+        setTimeout(() => {
+          useStore.getState().persistCurrentConversation();
+        }, 100);
         // Non-zero exit code with no content → likely an error
         if (data.code !== 0 && data.code !== null && assistantId) {
           const current = useStore.getState().currentMessages;
@@ -301,11 +424,63 @@ export function useOpenClaude() {
     }
   }, [setIsThinking, updateMessage]);
 
+  // Regenerate a response: find the user message BEFORE the given assistant
+  // message ID, remove the assistant message, and re-send the user's prompt.
+  const regenerate = useCallback(
+    (assistantMessageId: string) => {
+      if (isThinking) return;
+      const messages = useStore.getState().currentMessages;
+      const idx = messages.findIndex((m) => m.id === assistantMessageId);
+      if (idx < 0) return;
+      // Find the most recent user message before this assistant message
+      let userIdx = idx - 1;
+      while (userIdx >= 0 && messages[userIdx].role !== 'user') userIdx--;
+      if (userIdx < 0) return;
+      const userMsg = messages[userIdx];
+
+      // Remove all messages from the assistant message onwards (so we can
+      // re-send the user's prompt and get a fresh response).
+      useStore.getState().clearMessages;
+      // We can't partially clear via the store API easily — instead, we
+      // set currentMessages to everything before the assistant message.
+      const { setMessages } = useStore.getState() as any;
+      if (typeof setMessages === 'function') {
+        setMessages(messages.slice(0, idx));
+      }
+
+      // Re-send the user's prompt
+      sendMessage(userMsg.content);
+    },
+    [isThinking, sendMessage],
+  );
+
+  // Edit a user message: replace its content and re-send (which removes
+  // all subsequent messages and starts a new response).
+  const editAndResend = useCallback(
+    (userMessageId: string, newContent: string) => {
+      if (isThinking) return;
+      if (!newContent.trim()) return;
+      const messages = useStore.getState().currentMessages;
+      const idx = messages.findIndex((m) => m.id === userMessageId);
+      if (idx < 0) return;
+      // Update the user message content
+      updateMessage(userMessageId, { content: newContent });
+      // Truncate everything after the user message
+      const { setMessages } = useStore.getState() as any;
+      if (typeof setMessages === 'function') {
+        setMessages(messages.slice(0, idx + 1));
+      }
+      // Re-send (this will spawn a new openclaude process for the new content)
+      sendMessage(newContent);
+    },
+    [isThinking, sendMessage, updateMessage],
+  );
+
   // Reset conversation state (called when user starts a new chat)
   const resetConversation = useCallback(() => {
     hasPriorMessageRef.current = false;
     pendingAssistantRef.current = null;
   }, []);
 
-  return { sendMessage, stop, isThinking, resetConversation };
+  return { sendMessage, stop, isThinking, resetConversation, regenerate, editAndResend };
 }
