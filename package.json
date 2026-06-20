@@ -1,6 +1,6 @@
 {
   "name": "openclaude-ui",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "A beautiful Claude/ChatGPT-like desktop interface for OpenClaude",
   "author": "OpenClaude UI <openclaude-ui@example.com>",
   "license": "MIT",
@@ -54,6 +54,9 @@
     },
     "files": [
       "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "asarUnpack": [
       "dist-electron/**/*"
     ],
     "mac": {

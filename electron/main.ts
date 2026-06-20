@@ -5,11 +5,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import https from 'node:https';
 
-// In CommonJS (which Electron's main process uses by default), __dirname is
-// available globally. No need for import.meta.url shenanigans.
-const __dirname = (typeof (globalThis as any).__dirname !== 'undefined')
-  ? (globalThis as any).__dirname
-  : process.cwd();
+// Resolve the directory containing the bundled main.js / preload.js.
+// In development: __dirname is set by Vite to the dist-electron folder.
+// In production (packaged asar): __dirname may point inside app.asar,
+// which is the correct location for both main.js and preload.js.
+// The fallback to process.cwd() only kicks in for very old Electron
+// versions or unusual bundlers — and we never want to use the user's
+// home directory (which is what cwd returns when launched from a desktop
+// launcher). So we prefer __dirname unconditionally when available.
+declare const __dirname: string;
+const MAIN_DIR: string =
+  typeof __dirname !== 'undefined' && __dirname
+    ? __dirname
+    : (app ? path.dirname(app.getAppPath()) : process.cwd());
 
 // -------------------------------------------------------------
 // OpenClaude path resolution & installation
@@ -453,7 +461,7 @@ function createWindow() {
     title: 'OpenClaude UI',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(MAIN_DIR, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -479,7 +487,47 @@ function createWindow() {
     mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    // Production: load the bundled index.html.
+    // Try a list of candidate locations because different packagers
+    // (electron-builder with asar vs unpacked, AppImage, portable, etc.)
+    // place dist/ at different relative paths.
+    const candidates = [
+      path.join(MAIN_DIR, '../dist/index.html'), // most common: dist-electron/../dist
+      path.join(MAIN_DIR, '../../dist/index.html'), // when main.js is nested deeper
+      path.join(app.getAppPath(), 'dist/index.html'), // absolute app root
+      path.join(app.getAppPath(), '../dist/index.html'), // sibling of app.asar
+    ];
+    let loaded = false;
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate)) {
+          mainWindow.loadFile(candidate);
+          loaded = true;
+          break;
+        }
+      } catch {
+        // ignore — try next candidate
+      }
+    }
+    if (!loaded) {
+      // Last resort: log the error and show a blank page.
+      // The user can open DevTools (Ctrl+Shift+I) to debug.
+      console.error(
+        '[OpenClaude UI] Could not find index.html in any of:',
+        candidates,
+      );
+      mainWindow.loadURL(
+        'data:text/html,<html><body style="font-family:sans-serif;padding:40px;color:#d97757;background:#1a1816">' +
+          '<h1>Failed to load UI</h1>' +
+          '<p>The app bundle is missing the <code>dist/index.html</code> file.</p>' +
+          '<p>Looked in:</p><pre>' +
+          candidates.join('\n') +
+          '</pre>' +
+          '<p>MAIN_DIR = ' + MAIN_DIR + '</p>' +
+          '<p>app.getAppPath() = ' + app.getAppPath() + '</p>' +
+          '</body></html>',
+      );
+    }
   }
 
   mainWindow.on('closed', () => {
