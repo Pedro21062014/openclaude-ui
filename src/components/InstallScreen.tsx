@@ -3,7 +3,7 @@ import { useStore } from '@/hooks/useStore';
 
 // App version (kept in sync with package.json via Vite's define plugin would be ideal,
 // but hardcoding here is simpler and matches the release tag)
-const APP_VERSION = '1.0.6';
+const APP_VERSION = '1.0.7';
 
 const CLAUDE_CODE_LOGO =
   'https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/light/claudecode-color.png';
@@ -58,6 +58,26 @@ export function InstallScreen() {
     ocStatus.error,
     userSkippedInstall,
   ]);
+
+  // STUCK-DETECTION: if status stays "detecting" for more than 12 seconds
+  // (which happens when the preload script failed to load and IPC calls
+  // silently hang), surface an error so the user isn't stuck on a
+  // spinner forever.
+  useEffect(() => {
+    if (!ocStatus.detecting || ocStatus.installed || ocStatus.installing) return;
+    const t = setTimeout(() => {
+      const cur = useStore.getState().ocStatus;
+      if (cur.detecting && !cur.installed && !cur.installing) {
+        setOcStatus({
+          ...cur,
+          detecting: false,
+          error:
+            'A verificação demorou demais. Provavelmente o script de preload não carregou corretamente. Tente reiniciar o app.',
+        });
+      }
+    }, 12000);
+    return () => clearTimeout(t);
+  }, [ocStatus.detecting, ocStatus.installed, ocStatus.installing, setOcStatus]);
 
   const handleContinue = () => {
     setShowInstallScreen(false);

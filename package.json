@@ -1,11 +1,10 @@
 {
   "name": "openclaude-ui",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "A beautiful Claude/ChatGPT-like desktop interface for OpenClaude",
   "author": "OpenClaude UI <openclaude-ui@example.com>",
   "license": "MIT",
   "main": "dist-electron/main.js",
-  "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
     "dev:vite": "vite",

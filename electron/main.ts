@@ -1,12 +1,15 @@
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { spawn, exec, ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import https from 'node:https';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// In CommonJS (which Electron's main process uses by default), __dirname is
+// available globally. No need for import.meta.url shenanigans.
+const __dirname = (typeof (globalThis as any).__dirname !== 'undefined')
+  ? (globalThis as any).__dirname
+  : process.cwd();
 
 // -------------------------------------------------------------
 // OpenClaude path resolution & installation

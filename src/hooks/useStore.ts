@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 interface AppState {
   // Status
   ocStatus: OpenClaudeStatus;
-  setOcStatus: (s: OpenClaudeStatus) => void;
+  setOcStatus: (s: OpenClaudeStatus | ((prev: OpenClaudeStatus) => OpenClaudeStatus)) => void;
 
   // Settings
   settings: AppSettings;
@@ -65,7 +65,11 @@ export const useStore = create<AppState>((set, get) => ({
     installLog: '',
     error: null,
   },
-  setOcStatus: (s) => set({ ocStatus: s }),
+  setOcStatus: (s) =>
+    set((state) => ({
+      ocStatus:
+        typeof s === 'function' ? s(state.ocStatus) : s,
+    })),
 
   settings: DEFAULT_SETTINGS,
   setSettings: (s) =>

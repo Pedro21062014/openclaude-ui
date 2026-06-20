@@ -88,16 +88,48 @@ export default function App() {
   // is non-blocking (returns immediately, status flows through IPC).
   useEffect(() => {
     (async () => {
+      // Defensive check: if the preload script failed to load (which can
+      // happen in production builds if the format is wrong), window.openclaude
+      // will be undefined. In that case, surface a clear error instead of
+      // spinning forever on "Verificando...".
+      if (typeof window === 'undefined' || !window.openclaude) {
+        console.error(
+          'window.openclaude is undefined — preload script failed to load.',
+        );
+        setOcStatus({
+          installed: false,
+          path: null,
+          version: null,
+          installing: false,
+          detecting: false,
+          installProgress: 0,
+          installLog: '',
+          error:
+            'Erro de inicialização: o script de preload não carregou. Reinicie o app. Se o problema persistir, reporte este bug.',
+        });
+        return;
+      }
+
       try {
         // Just get current status (instant) — actual detection happens in main
-        const status = await window.openclaude?.getOpenClaudeStatus();
+        const status = await window.openclaude.getOpenClaudeStatus();
         if (status) setOcStatus(status);
         // If main hasn't started detecting yet, nudge it
-        if (!status.installed && !status.detecting && !status.installing) {
-          await window.openclaude?.detectOpenClaude();
+        if (
+          status &&
+          !status.installed &&
+          !status.detecting &&
+          !status.installing
+        ) {
+          await window.openclaude.detectOpenClaude();
         }
       } catch (e) {
         console.error('Detection failed:', e);
+        setOcStatus((prev: any) => ({
+          ...prev,
+          detecting: false,
+          error: `Falha na detecção: ${e instanceof Error ? e.message : String(e)}`,
+        }));
       }
     })();
   }, [setOcStatus]);

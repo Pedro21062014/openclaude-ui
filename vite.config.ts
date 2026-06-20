@@ -14,7 +14,24 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron', 'child_process', 'fs', 'path', 'os', 'https', 'http', 'stream', 'util', 'events', 'zlib'],
+              external: [
+                'electron',
+                'child_process',
+                'fs',
+                'path',
+                'os',
+                'https',
+                'http',
+                'stream',
+                'util',
+                'events',
+                'zlib',
+              ],
+              output: {
+                format: 'cjs',
+                entryFileNames: '[name].js',
+                compact: true,
+              },
             },
           },
         },
@@ -27,6 +44,14 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
+            rollupOptions: {
+              external: ['electron'],
+              output: {
+                format: 'cjs',
+                entryFileNames: '[name].js',
+                compact: true,
+              },
+            },
           },
         },
       },
