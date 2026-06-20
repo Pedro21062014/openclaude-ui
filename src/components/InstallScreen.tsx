@@ -15,7 +15,7 @@ export function InstallScreen() {
     }
   }, [ocStatus.installLog]);
 
-  // Kick off install if not started
+  // Kick off install if user clicks the button (NOT auto-start)
   const startInstall = async () => {
     try {
       await window.openclaude?.installOpenClaude();
@@ -23,15 +23,6 @@ export function InstallScreen() {
       console.error(e);
     }
   };
-
-  // Auto-start install if screen shown without install in progress
-  useEffect(() => {
-    if (!ocStatus.installed && !ocStatus.installing && !ocStatus.error) {
-      // Give user a moment to see the logo, then auto-start
-      const t = setTimeout(startInstall, 1500);
-      return () => clearTimeout(t);
-    }
-  }, [ocStatus.installed, ocStatus.installing, ocStatus.error]);
 
   const handleContinue = () => {
     setShowInstallScreen(false);
@@ -42,6 +33,42 @@ export function InstallScreen() {
     setOcStatus({ ...ocStatus, error: null, installLog: '', installProgress: 0 });
     setTimeout(startInstall, 200);
   };
+
+  // ----- Determine which "mode" the install screen is in -----
+  // 1. detecting   → "Checking if OpenClaude is installed..." (spinner, no auto-install)
+  // 2. installing  → "Installing OpenClaude..." (progress bar)
+  // 3. error       → "Installation failed" (retry button)
+  // 4. not-installed (after detection) → "OpenClaude not found" (install button)
+  // 5. installed   → "Ready!" (continue button)
+  const isDetecting = ocStatus.detecting && !ocStatus.installed && !ocStatus.installing;
+  const isInstalling = ocStatus.installing;
+  const isError = !!ocStatus.error && !ocStatus.installing;
+  const isInstalled = ocStatus.installed;
+  const isNotInstalled =
+    !ocStatus.installed && !ocStatus.detecting && !ocStatus.installing && !ocStatus.error;
+
+  const title = isDetecting
+    ? 'Verificando ambiente'
+    : isInstalling
+      ? 'Instalando OpenClaude'
+      : isError
+        ? 'Falha na instalação'
+        : isInstalled
+          ? 'Pronto!'
+          : 'OpenClaude não encontrado';
+
+  const subtitle = isDetecting
+    ? 'Verificando se o OpenClaude CLI já está instalado na sua máquina...'
+    : isInstalling
+      ? 'Baixando e configurando o OpenClaude CLI. Isso pode levar alguns minutos.'
+      : isError
+        ? 'Não foi possível instalar o OpenClaude automaticamente. Verifique o log abaixo.'
+        : isInstalled
+          ? `OpenClaude ${ocStatus.version} está pronto para uso.`
+          : 'O OpenClaude CLI não foi encontrado. Clique abaixo para instalá-lo automaticamente.';
+
+  // Show the animated gradient ring when detecting OR installing
+  const showRing = isDetecting || isInstalling;
 
   return (
     <div className="flex h-screen w-screen flex-col items-center justify-center bg-[var(--bg-primary)] px-8">
@@ -63,8 +90,8 @@ export function InstallScreen() {
           draggable={false}
         />
 
-        {/* Animated gradient ring around logo while installing */}
-        {ocStatus.installing && (
+        {/* Animated gradient ring around logo while detecting/installing */}
+        {showRing && (
           <div className="absolute inset-0 -m-4">
             <div
               className="h-full w-full rounded-full"
@@ -81,39 +108,33 @@ export function InstallScreen() {
       </div>
 
       <h1 className="mb-2 text-3xl font-semibold tracking-tight text-[var(--text-primary)]">
-        {ocStatus.installing
-          ? 'Instalando OpenClaude'
-          : ocStatus.error
-            ? 'Falha na instalação'
-            : ocStatus.installed
-              ? 'Pronto!'
-              : 'Configurando ambiente'}
+        {title}
       </h1>
 
       <p className="mb-8 max-w-md text-center text-sm text-[var(--text-secondary)]">
-        {ocStatus.installing
-          ? 'Baixando e configurando o OpenClaude CLI na sua máquina. Isso pode levar alguns minutos.'
-          : ocStatus.error
-            ? 'Não foi possível instalar o OpenClaude automaticamente. Verifique o log abaixo.'
-            : ocStatus.installed
-              ? `OpenClaude ${ocStatus.version} está pronto para uso.`
-              : 'Verificando se o OpenClaude já está instalado...'}
+        {subtitle}
       </p>
 
-      {/* Progress bar */}
-      {(ocStatus.installing || ocStatus.error) && (
+      {/* Detecting spinner (subtle, fast) */}
+      {isDetecting && (
+        <div className="mb-6 flex items-center gap-2.5 text-sm text-[var(--text-secondary)]">
+          <div className="thinking-orb !h-4 !w-4" />
+          <span>Verificando...</span>
+        </div>
+      )}
+
+      {/* Progress bar (only during install) */}
+      {isInstalling && (
         <div className="mb-6 w-full max-w-md">
           <div className="mb-2 flex items-center justify-between text-xs text-[var(--text-secondary)]">
-            <span>{ocStatus.installing ? 'Progresso' : 'Erro'}</span>
+            <span>Progresso</span>
             <span>{Math.round(ocStatus.installProgress)}%</span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]">
-            {ocStatus.installing && (
-              <div
-                className="thinking-bar h-full transition-all duration-300"
-                style={{ width: `${ocStatus.installProgress}%` }}
-              />
-            )}
+            <div
+              className="thinking-bar h-full transition-all duration-300"
+              style={{ width: `${ocStatus.installProgress}%` }}
+            />
           </div>
         </div>
       )}
@@ -135,7 +156,7 @@ export function InstallScreen() {
 
       {/* Action buttons */}
       <div className="flex gap-3">
-        {ocStatus.installed && (
+        {isInstalled && (
           <button
             onClick={handleContinue}
             className="rounded-lg bg-[var(--accent)] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
@@ -143,7 +164,17 @@ export function InstallScreen() {
             Começar a conversar
           </button>
         )}
-        {ocStatus.error && (
+
+        {isNotInstalled && (
+          <button
+            onClick={startInstall}
+            className="rounded-lg bg-[var(--accent)] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
+          >
+            Instalar OpenClaude
+          </button>
+        )}
+
+        {isError && (
           <>
             <button
               onClick={handleRetry}
@@ -159,11 +190,22 @@ export function InstallScreen() {
             </button>
           </>
         )}
-        {ocStatus.installing && !ocStatus.error && (
+
+        {isInstalling && (
           <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
             <div className="thinking-orb !h-4 !w-4" />
             <span>Instalando...</span>
           </div>
+        )}
+
+        {/* Skip button — lets user bypass detection/install and go to chat UI */}
+        {(isDetecting || isNotInstalled) && (
+          <button
+            onClick={() => setShowInstallScreen(false)}
+            className="rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
+          >
+            Pular
+          </button>
         )}
       </div>
 

@@ -17,6 +17,7 @@ interface OpenClaudeStatus {
   path: string | null;
   version: string | null;
   installing: boolean;
+  detecting: boolean;
   installProgress: number; // 0..100
   installLog: string;
   error: string | null;
@@ -27,6 +28,7 @@ let ocStatus: OpenClaudeStatus = {
   path: null,
   version: null,
   installing: false,
+  detecting: false,
   installProgress: 0,
   installLog: '',
   error: null,
@@ -44,40 +46,131 @@ function appendLog(line: string) {
   pushStatus();
 }
 
-function detectOpenClaude(): Promise<{ path: string; version: string } | null> {
-  return new Promise((resolve) => {
-    const cmd = process.platform === 'win32' ? 'where' : 'which';
-    const child = exec(`${cmd} openclaude`, { env: process.env });
-    let out = '';
-    child.stdout?.on('data', (d) => (out += d.toString()));
-    child.stderr?.on('data', () => {});
+// -------------------------------------------------------------
+// Fast helpers — all with hard timeouts so the UI never hangs
+// -------------------------------------------------------------
+
+/** Run a command with a hard timeout. Rejects if it exceeds `ms`. */
+function execWithTimeout(cmd: string, ms: number): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = exec(cmd, {
+      env: process.env,
+      windowsHide: true,
+      timeout: ms,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (d) => (stdout += d.toString()));
+    child.stderr?.on('data', (d) => (stderr += d.toString()));
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch {}
+      reject(new Error(`Command timed out after ${ms}ms: ${cmd}`));
+    }, ms);
     child.on('close', (code) => {
-      if (code !== 0 || !out.trim()) {
-        // Fallback: try `npx openclaude --version`
-        const npx = exec('npx --no-install openclaude --version', { env: process.env });
-        let vOut = '';
-        npx.stdout?.on('data', (d) => (vOut += d.toString()));
-        npx.stderr?.on('data', () => {});
-        npx.on('close', (c) => {
-          if (c === 0 && vOut.trim()) {
-            resolve({ path: 'npx openclaude', version: vOut.trim() });
-          } else {
-            resolve(null);
-          }
-        });
-        return;
-      }
-      const ocPath = out.trim().split(/\r?\n/)[0];
-      // Get version
-      const v = exec(`"${ocPath}" --version`, { env: process.env });
-      let vOut = '';
-      v.stdout?.on('data', (d) => (vOut += d.toString()));
-      v.stderr?.on('data', () => {});
-      v.on('close', () => {
-        resolve({ path: ocPath, version: vOut.trim() || 'unknown' });
-      });
+      clearTimeout(timer);
+      resolve({ code: code ?? -1, stdout, stderr });
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
     });
   });
+}
+
+/** Check if a file exists and is executable. */
+function fileExists(p: string): boolean {
+  try {
+    return fs.existsSync(p) && fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build a list of likely `openclaude` install paths to probe directly.
+ * This is dramatically faster than spawning `which`/`where` (which has
+ * to scan PATH), and avoids the slow npx fallback entirely.
+ */
+function getCandidatePaths(): string[] {
+  const isWin = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+  const home = os.homedir();
+  const paths: string[] = [];
+
+  const ext = isWin ? '.cmd' : '';
+
+  // npm global prefix (most common install location)
+  // %APPDATA%\npm on Windows, /usr/local/bin or /opt/homebrew/bin on mac, /usr/local/bin on linux
+  if (isWin) {
+    paths.push(path.join(home, 'AppData', 'Roaming', 'npm', `openclaude${ext}`));
+    paths.push(path.join(home, 'AppData', 'Roaming', 'npm', 'openclaude'));
+    paths.push(path.join(home, 'AppData', 'Roaming', 'npm', 'node_modules', 'openclaude', 'bin', 'openclaude'));
+  } else {
+    paths.push('/usr/local/bin/openclaude');
+    paths.push('/usr/bin/openclaude');
+    paths.push('/opt/homebrew/bin/openclaude');
+    paths.push(path.join(home, '.local', 'bin', 'openclaude'));
+    paths.push(path.join(home, '.npm-global', 'bin', 'openclaude'));
+    // nvm shims (bash/zsh)
+    paths.push(path.join(home, '.nvm', 'versions', 'node', 'current', 'bin', 'openclaude'));
+    // volta
+    paths.push(path.join(home, '.volta', 'bin', 'openclaude'));
+    // pnpm
+    paths.push(path.join(home, '.local', 'share', 'pnpm', 'openclaude'));
+    // yarn global
+    paths.push(path.join(home, '.yarn', 'bin', 'openclaude'));
+    paths.push(path.join(home, '.config', 'yarn', 'global', 'node_modules', '.bin', 'openclaude'));
+  }
+
+  return paths;
+}
+
+/**
+ * Fast detection — should complete in well under 1 second on most systems.
+ *
+ * Strategy (in order, stops at first hit):
+ *   1. Probe known install paths directly (no subprocess).
+ *   2. Quick `which`/`where` with a 1.5s timeout.
+ *   3. Bail out — do NOT fall back to npx (it does network calls and is slow).
+ *
+ * Returns the path + version, or null if not found.
+ */
+async function detectOpenClaude(): Promise<{ path: string; version: string } | null> {
+  // ---- Step 1: probe candidate paths directly (instant) ----
+  const candidates = getCandidatePaths();
+  for (const p of candidates) {
+    if (fileExists(p)) {
+      // Try to get version (fast, with timeout)
+      let version = 'unknown';
+      try {
+        const r = await execWithTimeout(`"${p}" --version`, 1500);
+        if (r.code === 0 && r.stdout.trim()) version = r.stdout.trim();
+      } catch {
+        // version lookup failed — but the binary exists, so still report it
+      }
+      return { path: p, version };
+    }
+  }
+
+  // ---- Step 2: quick which/where with hard 1.5s timeout ----
+  try {
+    const cmd = process.platform === 'win32' ? 'where openclaude' : 'which openclaude';
+    const r = await execWithTimeout(cmd, 1500);
+    if (r.code === 0 && r.stdout.trim()) {
+      const ocPath = r.stdout.trim().split(/\r?\n/)[0];
+      let version = 'unknown';
+      try {
+        const v = await execWithTimeout(`"${ocPath}" --version`, 1500);
+        if (v.code === 0 && v.stdout.trim()) version = v.stdout.trim();
+      } catch {}
+      return { path: ocPath, version };
+    }
+  } catch {
+    // which/where timed out or failed — fall through to "not found"
+  }
+
+  // ---- Step 3: NOT found. Do NOT try npx (it's slow and does network calls) ----
+  return null;
 }
 
 async function installOpenClaude() {
@@ -162,6 +255,12 @@ async function installOpenClaude() {
 }
 
 async function ensureOpenClaude() {
+  // Mark as detecting so UI can show "Checking..." immediately
+  ocStatus.detecting = true;
+  ocStatus.installed = false;
+  ocStatus.error = null;
+  pushStatus();
+
   const detected = await detectOpenClaude();
   if (detected) {
     ocStatus.installed = true;
@@ -169,7 +268,10 @@ async function ensureOpenClaude() {
     ocStatus.version = detected.version;
   } else {
     ocStatus.installed = false;
+    ocStatus.path = null;
+    ocStatus.version = null;
   }
+  ocStatus.detecting = false;
   pushStatus();
 }
 

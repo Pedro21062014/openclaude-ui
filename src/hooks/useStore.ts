@@ -55,6 +55,7 @@ export const useStore = create<AppState>((set, get) => ({
     path: null,
     version: null,
     installing: false,
+    detecting: true, // start in detecting state so UI shows "Checking..."
     installProgress: 0,
     installLog: '',
     error: null,

@@ -63,6 +63,7 @@ export interface OpenClaudeStatus {
   path: string | null;
   version: string | null;
   installing: boolean;
+  detecting: boolean;
   installProgress: number;
   installLog: string;
   error: string | null;

@@ -82,22 +82,37 @@ export default function App() {
     };
   }, [setOcStatus, showInstallScreen, setShowInstallScreen]);
 
-  // Initial detection
+  // Initial detection — main process already kicks this off in app.whenReady(),
+  // but we trigger it again here so the UI gets a fresh status push. This call
+  // is non-blocking (returns immediately, status flows through IPC).
   useEffect(() => {
     (async () => {
       try {
-        const status = await window.openclaude?.detectOpenClaude();
+        // Just get current status (instant) — actual detection happens in main
+        const status = await window.openclaude?.getOpenClaudeStatus();
         if (status) setOcStatus(status);
-        if (!status.installed) setShowInstallScreen(true);
+        // If main hasn't started detecting yet, nudge it
+        if (!status.installed && !status.detecting && !status.installing) {
+          await window.openclaude?.detectOpenClaude();
+        }
       } catch (e) {
         console.error('Detection failed:', e);
-        setShowInstallScreen(true);
       }
     })();
-  }, [setOcStatus, setShowInstallScreen]);
+  }, [setOcStatus]);
 
-  // Show install screen if openclaude is not installed
-  if (showInstallScreen || (!ocStatus.installed && !ocStatus.installing)) {
+  // Show install screen only when:
+  //   - detection has finished (`!detecting`)
+  //   - openclaude is not installed
+  //   - install is not in progress
+  // During detection we show the InstallScreen too, but in "Checking..." mode
+  // (it renders its own loading state — see InstallScreen.tsx).
+  const shouldShowInstallScreen =
+    showInstallScreen ||
+    (ocStatus.detecting && !ocStatus.installed) ||
+    (!ocStatus.installed && !ocStatus.installing);
+
+  if (shouldShowInstallScreen) {
     return <InstallScreen />;
   }
 
