@@ -7,6 +7,7 @@ import { findModel } from '@/data/models';
 import type { ChatMessage, FileOperation } from '@/types';
 import { ThinkingAnimation } from './ThinkingAnimation';
 import { DiffModal } from './DiffModal';
+import { BashCommandCard } from './BashCommandCard';
 import {
   Copy,
   RefreshCw,
@@ -150,6 +151,7 @@ function MessageItem({
 
   // Assistant message
   const hasFileOps = (message.fileOperations?.length || 0) > 0;
+  const hasBashCmds = (message.bashCommands?.length || 0) > 0;
   const showActionButtons = message.done && !message.thinking && !message.error;
 
   return (
@@ -181,7 +183,7 @@ function MessageItem({
       {/* Content */}
       <div className="selectable ml-9 min-h-[28px]">
         {message.thinking && !message.content ? (
-          <ThinkingAnimation size={64} />
+          <ThinkingAnimation size={140} />
         ) : (
           <>
             <div className="markdown-body">
@@ -218,13 +220,27 @@ function MessageItem({
 
             {message.thinking && message.content && (
               <div className="mt-2">
-                <ThinkingAnimation size={32} showText={false} />
+                <ThinkingAnimation size={80} showText={false} />
               </div>
             )}
 
             {message.error && (
               <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">
                 {message.content}
+              </div>
+            )}
+
+            {/* Bash command indicators */}
+            {hasBashCmds && !message.thinking && (
+              <div className="mt-3 space-y-1.5">
+                <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-secondary)]">
+                  {message.bashCommands!.length === 1
+                    ? 'Comando executado'
+                    : `${message.bashCommands!.length} comandos executados`}
+                </div>
+                {message.bashCommands!.map((cmd) => (
+                  <BashCommandCard key={cmd.id} command={cmd} />
+                ))}
               </div>
             )}
 

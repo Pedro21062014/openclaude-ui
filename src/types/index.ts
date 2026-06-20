@@ -30,6 +30,20 @@ export interface FileOperation {
   timestamp: number;
 }
 
+export interface BashCommand {
+  id: string;
+  command: string;
+  // Output from the command (may stream in)
+  output?: string;
+  // 'running' | 'done' | 'error'
+  status: 'running' | 'done' | 'error';
+  // Exit code (when done)
+  exitCode?: number;
+  // Tool that ran this (usually 'Bash')
+  tool?: string;
+  timestamp: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -41,6 +55,8 @@ export interface ChatMessage {
   tokens?: number;
   // File operations performed by the assistant in this message
   fileOperations?: FileOperation[];
+  // Bash commands executed by the assistant in this message
+  bashCommands?: BashCommand[];
   // Whether the message has finished streaming (controls when action
   // buttons and diff button are shown)
   done?: boolean;

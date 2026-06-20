@@ -247,6 +247,25 @@ export const PROVIDERS: ModelProvider[] = [
       { id: 'accounts/fireworks/models/llama4-maverick-instruct-basic', name: 'Llama 4 Maverick', contextWindow: 1000000 },
     ],
   },
+  {
+    id: 'nvidia',
+    name: 'NVIDIA NIM',
+    logo: `${BASE}/nvidia.png`,
+    color: '#76b900',
+    requiresApiKey: true,
+    envVar: 'OPENAI_API_KEY',
+    defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
+    models: [
+      { id: 'nvidia/llama-3.3-nemotron-super-49b-v1', name: 'Nemotron Super 49B', contextWindow: 128000, description: 'Modelo otimizado pela NVIDIA' },
+      { id: 'nvidia/llama-3.1-nemotron-70b-instruct', name: 'Nemotron 70B Instruct', contextWindow: 128000 },
+      { id: 'meta/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (NVIDIA)', contextWindow: 128000 },
+      { id: 'meta/llama-3.1-405b-instruct', name: 'Llama 3.1 405B (NVIDIA)', contextWindow: 128000 },
+      { id: 'mistralai/mixtral-8x22b-instruct-v0.1', name: 'Mixtral 8x22B', contextWindow: 65536 },
+      { id: 'qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', contextWindow: 32768 },
+      { id: 'deepseek-ai/deepseek-r1', name: 'DeepSeek R1 (NVIDIA)', contextWindow: 128000 },
+      { id: 'google/gemma-2-27b', name: 'Gemma 2 27B', contextWindow: 8192 },
+    ],
+  },
 ];
 
 export function findModel(modelId: string): { provider: ModelProvider; model: any } | null {

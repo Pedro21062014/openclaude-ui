@@ -356,7 +356,7 @@ function buildSessionEnv(options: PromptOptions): NodeJS.ProcessEnv {
   const apiKey = options.apiKey || '';
   const baseUrl = options.baseUrl || '';
 
-  if (provider === 'openai' || provider === 'openrouter' || provider === 'deepseek' || provider === 'zai' || provider === 'qwen' || provider === 'mistral' || provider === 'groq' || provider === 'together' || provider === 'fireworks' || provider === 'perplexity' || provider === 'xai' || provider === 'openai-compatible') {
+  if (provider === 'openai' || provider === 'openrouter' || provider === 'deepseek' || provider === 'zai' || provider === 'qwen' || provider === 'mistral' || provider === 'groq' || provider === 'together' || provider === 'fireworks' || provider === 'perplexity' || provider === 'xai' || provider === 'nvidia' || provider === 'openai-compatible') {
     env.CLAUDE_CODE_USE_OPENAI = '1';
     if (apiKey) env.OPENAI_API_KEY = apiKey;
     if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
@@ -464,6 +464,7 @@ function runPrompt(sessionId: string, prompt: string, options: PromptOptions) {
       fireworks: 'openai',
       perplexity: 'openai',
       xai: 'openai',
+      nvidia: 'openai',
     };
     const ocProvider = providerMap[p] || 'openai';
     args.push('--provider', ocProvider);
@@ -492,6 +493,7 @@ function runPrompt(sessionId: string, prompt: string, options: PromptOptions) {
     'fireworks',
     'perplexity',
     'xai',
+    'nvidia',
   ].includes(provider);
 
   if (options.model && !isOpenAICompatible) {

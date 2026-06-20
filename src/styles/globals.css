@@ -117,6 +117,16 @@ body {
   }
 }
 
+/* Animated gradient border for running bash commands */
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 0%, 0% 0%;
+  }
+  100% {
+    background-position: 0% 0%, -200% 0%;
+  }
+}
+
 /* Animated gradient bar (loading bar style) */
 .thinking-bar {
   background: linear-gradient(

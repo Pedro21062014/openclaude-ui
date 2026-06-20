@@ -4,7 +4,7 @@ import { ThinkingAnimation } from './ThinkingAnimation';
 
 // App version (kept in sync with package.json via Vite's define plugin would be ideal,
 // but hardcoding here is simpler and matches the release tag)
-const APP_VERSION = '1.0.13';
+const APP_VERSION = '1.0.14';
 
 const CLAUDE_CODE_LOGO =
   'https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/light/claudecode-color.png';
@@ -182,7 +182,7 @@ export function InstallScreen() {
       {/* Detecting spinner (subtle, fast) */}
       {isDetecting && (
         <div className="mb-6">
-          <ThinkingAnimation size={56} text="Verificando" />
+          <ThinkingAnimation size={140} text="Verificando" />
         </div>
       )}
 

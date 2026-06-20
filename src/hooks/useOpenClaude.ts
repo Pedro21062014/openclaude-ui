@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from './useStore';
 import { findModel } from '@/data/models';
-import type { ChatMessage, FileOperation } from '@/types';
+import type { ChatMessage, FileOperation, BashCommand } from '@/types';
 
 const SESSION_ID = 'main-session';
 
@@ -106,6 +106,82 @@ function extractFileOperations(evt: any): FileOperation[] {
     }
   }
   return ops;
+}
+
+/**
+ * Extract bash commands from a stream event.
+ *
+ * Looks for tool_use blocks with name 'Bash' (or 'BashOutput', 'KillShell',
+ * 'Task' — which spawn sub-processes). Each bash command becomes a
+ * BashCommand object with status 'running' initially.
+ *
+ * When we later see a 'user' event with tool_result content matching the
+ * same tool_use_id, we update the command status to 'done' (or 'error' if
+ * the result indicates failure) and capture the output.
+ */
+function extractBashCommands(evt: any): BashCommand[] {
+  const cmds: BashCommand[] = [];
+  if (!evt || typeof evt !== 'object') return cmds;
+
+  const content = evt?.message?.content;
+  if (!Array.isArray(content)) return cmds;
+
+  for (const block of content) {
+    if (block?.type !== 'tool_use') continue;
+    const toolName = block.name || '';
+    const input = block.input || {};
+
+    if (toolName === 'Bash' && input.command) {
+      cmds.push({
+        id: block.id || uid(),
+        command: input.command,
+        status: 'running',
+        tool: toolName,
+        timestamp: Date.now(),
+      });
+    }
+  }
+  return cmds;
+}
+
+/**
+ * Extract tool results (outputs) from 'user' events.
+ *
+ * When openclaude finishes running a tool, it emits a 'user' event with
+ * message.content as an array of tool_result blocks. Each tool_result has
+ * a tool_use_id (matching the original tool_use block) and content (the
+ * output). We match these to update the corresponding BashCommand's
+ * output and status.
+ *
+ * Returns a map of tool_use_id → { output, is_error }.
+ */
+function extractToolResults(evt: any): Map<string, { output: string; isError: boolean }> {
+  const results = new Map<string, { output: string; isError: boolean }>();
+  if (!evt || typeof evt !== 'object') return results;
+
+  // 'user' events have role: 'user' and message.content with tool_result blocks
+  const content = evt?.message?.content;
+  if (!Array.isArray(content)) return results;
+
+  for (const block of content) {
+    if (block?.type !== 'tool_result') continue;
+    const toolUseId = block.tool_use_id;
+    if (!toolUseId) continue;
+    let output = '';
+    if (typeof block.content === 'string') {
+      output = block.content;
+    } else if (Array.isArray(block.content)) {
+      for (const c of block.content) {
+        if (typeof c === 'string') output += c;
+        else if (c?.text) output += c.text;
+      }
+    }
+    results.set(toolUseId, {
+      output,
+      isError: !!block.is_error,
+    });
+  }
+  return results;
 }
 
 export function useOpenClaude() {
@@ -260,6 +336,47 @@ export function useOpenClaude() {
                 ...fileOps,
               ],
             }));
+          }
+
+          // ----- Extract bash commands -----
+          // When openclaude calls the Bash tool, capture the command so
+          // the UI can show "▶ Executou comando" with expandable output.
+          const bashCmds = extractBashCommands(evt);
+          if (bashCmds.length > 0) {
+            updateMessage(assistantId, (prev: ChatMessage) => ({
+              bashCommands: [
+                ...(prev.bashCommands || []),
+                ...bashCmds,
+              ],
+            }));
+          }
+        }
+
+        // ----- Process tool results (outputs) from user events -----
+        // openclaude emits 'user' events with tool_result blocks when tools
+        // finish. We match these to the bash commands we captured earlier
+        // (by tool_use_id) and update their output + status.
+        if (evt.type === 'user') {
+          const results = extractToolResults(evt);
+          if (results.size > 0) {
+            // Get current bash commands for this message
+            const current = useStore.getState().currentMessages;
+            const msg = current.find((m) => m.id === assistantId);
+            if (msg?.bashCommands && msg.bashCommands.length > 0) {
+              const updatedCmds = msg.bashCommands.map((cmd) => {
+                const result = results.get(cmd.id);
+                if (result) {
+                  return {
+                    ...cmd,
+                    output: result.output,
+                    status: result.isError ? ('error' as const) : ('done' as const),
+                    exitCode: result.isError ? 1 : 0,
+                  };
+                }
+                return cmd;
+              });
+              updateMessage(assistantId, { bashCommands: updatedCmds });
+            }
           }
         }
       },
