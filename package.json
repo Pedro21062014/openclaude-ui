@@ -1,6 +1,6 @@
 {
   "name": "openclaude-ui",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "A beautiful Claude/ChatGPT-like desktop interface for OpenClaude",
   "author": "OpenClaude UI <openclaude-ui@example.com>",
   "license": "MIT",

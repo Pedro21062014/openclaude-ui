@@ -34,38 +34,10 @@ export function useOpenClaude() {
         if (!assistantId) return;
 
         const evt = data.event;
-        // Handle different stream-json event types from openclaude.
-        // Common types: 'system', 'assistant', 'result', 'message', 'text',
-        // 'content_block_delta', 'partial_message', etc.
-        let textChunk = '';
+        if (!evt || typeof evt !== 'object') return;
 
-        if (typeof evt === 'string') {
-          textChunk = evt;
-        } else if (evt.type === 'text' || evt.type === 'delta' || evt.type === 'content') {
-          textChunk = evt.text || evt.content || evt.delta || '';
-        } else if (evt.type === 'partial_message' || evt.type === 'partial') {
-          textChunk = evt.text || evt.content || evt.delta || evt.message || '';
-        } else if (evt.type === 'assistant' || evt.type === 'message') {
-          // Full assistant message — extract text content
-          if (typeof evt.message === 'string') {
-            textChunk = evt.message;
-          } else if (evt.message?.content) {
-            if (typeof evt.message.content === 'string') {
-              textChunk = evt.message.content;
-            } else if (Array.isArray(evt.message.content)) {
-              for (const c of evt.message.content) {
-                if (typeof c === 'string') textChunk += c;
-                else if (c?.text) textChunk += c.text;
-              }
-            }
-          }
-          if (evt.text) textChunk = evt.text;
-        } else if (evt.type === 'result') {
-          // Final result event — extract text
-          textChunk = evt.result || evt.text || evt.content || '';
-        } else if (evt.type === 'content_block_delta') {
-          textChunk = evt.delta?.text || evt.text || '';
-        } else if (evt.type === 'error') {
+        // ----- Error events -----
+        if (evt.type === 'error') {
           updateMessage(assistantId, {
             error: true,
             content: `❌ ${evt.message || evt.error || 'Erro desconhecido'}`,
@@ -76,9 +48,101 @@ export function useOpenClaude() {
           return;
         }
 
-        if (textChunk) {
+        // ----- System events (init info) — ignore -----
+        if (evt.type === 'system') {
+          // Just mark that we're no longer "thinking" placeholder
+          updateMessage(assistantId, { thinking: false });
+          return;
+        }
+
+        // ----- Determine event category -----
+        // openclaude's stream-json output emits multiple events per turn:
+        //   1. system/init         — metadata, no text content
+        //   2. assistant           — FULL assistant message with content array
+        //   3. result              — final result with the SAME text in `result`
+        //   (with --include-partial-messages, also:)
+        //   2a. partial_message    — incremental text deltas (token by token)
+        //
+        // BUG WE'RE FIXING:
+        // The old code APPENDED text from every event. So if we got the
+        // partial deltas (summing to "Olá!"), then the full `assistant`
+        // message ("Olá!"), then the `result` event ("Olá!" again), the
+        // final content would be "Olá!Olá!Olá!" — tripled.
+        //
+        // FIX:
+        // - Partial events (delta/partial_message/content_block_delta/text):
+        //     APPEND to existing content (these are incremental chunks)
+        // - Final events (assistant/message/result):
+        //     REPLACE the entire content (these contain the complete text)
+        // - system events: ignored
+
+        let partialText = ''; // text to APPEND
+        let finalText: string | null = null; // text to REPLACE with
+
+        if (typeof evt === 'string') {
+          // Raw string event — treat as partial
+          partialText = evt;
+        } else if (
+          evt.type === 'text' ||
+          evt.type === 'delta' ||
+          evt.type === 'content' ||
+          evt.type === 'partial' ||
+          evt.type === 'partial_message' ||
+          evt.type === 'content_block_delta'
+        ) {
+          // ----- Partial / delta events → APPEND -----
+          if (evt.type === 'content_block_delta') {
+            partialText = evt.delta?.text || evt.text || '';
+          } else {
+            partialText =
+              evt.text || evt.content || evt.delta || evt.message || '';
+          }
+        } else if (evt.type === 'assistant' || evt.type === 'message') {
+          // ----- Full assistant message → REPLACE -----
+          // Extract text from message.content (array of {type:'text', text})
+          let text = '';
+          if (typeof evt.message === 'string') {
+            text = evt.message;
+          } else if (evt.message?.content) {
+            if (typeof evt.message.content === 'string') {
+              text = evt.message.content;
+            } else if (Array.isArray(evt.message.content)) {
+              for (const c of evt.message.content) {
+                if (typeof c === 'string') text += c;
+                else if (c?.text) text += c.text;
+              }
+            }
+          }
+          if (!text && evt.text) text = evt.text;
+          finalText = text;
+        } else if (evt.type === 'result') {
+          // ----- Final result event → REPLACE -----
+          // Only set if we don't already have content from the assistant
+          // event (avoid redundant overwrite, though it would be the same
+          // text anyway).
+          finalText = evt.result || evt.text || evt.content || '';
+        }
+
+        // Apply the text update
+        if (finalText !== null) {
+          // REPLACE — but only if we actually have non-empty text AND
+          // the new text is different from what we already have (avoid
+          // flickering on identical re-renders).
+          const current = useStore.getState().currentMessages;
+          const msg = current.find((m) => m.id === assistantId);
+          if (finalText && (!msg || msg.content !== finalText)) {
+            updateMessage(assistantId, {
+              content: finalText,
+              thinking: false,
+            });
+          } else if (finalText && msg?.thinking) {
+            // Just clear the thinking state
+            updateMessage(assistantId, { thinking: false });
+          }
+        } else if (partialText) {
+          // APPEND
           updateMessage(assistantId, (prev: ChatMessage) => ({
-            content: (prev.content || '') + textChunk,
+            content: (prev.content || '') + partialText,
             thinking: false,
           }));
         }
