@@ -1,6 +1,6 @@
 import { useStore } from '@/hooks/useStore';
 import { useOpenClaude } from '@/hooks/useOpenClaude';
-import { Settings, Plus, MessageSquare, Trash2, Github, Terminal } from 'lucide-react';
+import { Settings, Plus, MessageSquare, Trash2, Github, Terminal, X, PanelLeftClose } from 'lucide-react';
 
 const CLAUDE_LOGO =
   'https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/light/claude-color.png';
@@ -61,7 +61,19 @@ export function Sidebar() {
     return (
       <div className="flex h-full w-14 flex-col items-center justify-between border-r border-[var(--border)] bg-[var(--sidebar-bg)] py-4">
         <div className="flex flex-col items-center gap-4">
-          <img src={CLAUDE_LOGO} alt="Claude" className="h-8 w-8" draggable={false} />
+          {/* Click the Claude logo to expand the sidebar */}
+          <button
+            onClick={() => setSettings({ sidebarCollapsed: false })}
+            title="Expandir barra lateral"
+            className="group flex h-10 w-10 items-center justify-center rounded-lg transition-all hover:bg-[var(--bg-secondary)]"
+          >
+            <img
+              src={CLAUDE_LOGO}
+              alt="Claude"
+              className="h-8 w-8 transition-transform group-hover:scale-110"
+              draggable={false}
+            />
+          </button>
           <button
             onClick={handleNewChat}
             title="Nova conversa"
@@ -108,12 +120,14 @@ export function Sidebar() {
             </span>
           </div>
         </div>
+        {/* Close (collapse) sidebar button — X icon, always visible */}
         <button
           onClick={() => setSettings({ sidebarCollapsed: true })}
-          className="rounded-md p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
-          title="Recolher"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          title="Fechar barra lateral"
+          aria-label="Fechar barra lateral"
         >
-          <MessageSquare className="h-4 w-4" />
+          <PanelLeftClose className="h-4 w-4" />
         </button>
       </div>
 
