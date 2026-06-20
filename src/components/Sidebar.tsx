@@ -1,12 +1,20 @@
 import { useStore } from '@/hooks/useStore';
-import { Settings, Plus, MessageSquare, Trash2, Github } from 'lucide-react';
+import { Settings, Plus, MessageSquare, Trash2, Github, Terminal } from 'lucide-react';
 
 const CLAUDE_LOGO =
   'https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/light/claude-color.png';
 
 export function Sidebar() {
-  const { settings, setSettings, clearMessages, setShowSettings, currentMessages } =
-    useStore();
+  const {
+    settings,
+    setSettings,
+    clearMessages,
+    setShowSettings,
+    currentMessages,
+    setShowInstallScreen,
+    setUserSkippedInstall,
+    ocStatus,
+  } = useStore();
 
   const collapsed = settings.sidebarCollapsed;
 
@@ -118,6 +126,34 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="border-t border-[var(--border)] p-3">
+        {/* OpenClaude status indicator + reinstall option */}
+        <button
+          onClick={() => {
+            // Re-open the install screen (also clears any previous skip)
+            setUserSkippedInstall(false);
+            setShowInstallScreen(true);
+          }}
+          className={`mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-secondary)] ${
+            ocStatus.installed
+              ? 'text-[var(--text-secondary)]'
+              : 'text-amber-500'
+          }`}
+          title={
+            ocStatus.installed
+              ? `OpenClaude ${ocStatus.version} instalado em ${ocStatus.path}`
+              : 'OpenClaude não instalado — clique para instalar'
+          }
+        >
+          <span className="flex items-center gap-2.5">
+            <Terminal className="h-4 w-4" />
+            OpenClaude CLI
+          </span>
+          <span
+            className={`h-2 w-2 rounded-full ${
+              ocStatus.installed ? 'bg-green-500' : 'bg-amber-500'
+            }`}
+          />
+        </button>
         <button
           onClick={() => setShowSettings(true)}
           className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"

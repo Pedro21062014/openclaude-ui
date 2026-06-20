@@ -3,13 +3,19 @@ import { useStore } from '@/hooks/useStore';
 
 // App version (kept in sync with package.json via Vite's define plugin would be ideal,
 // but hardcoding here is simpler and matches the release tag)
-const APP_VERSION = '1.0.4';
+const APP_VERSION = '1.0.5';
 
 const CLAUDE_CODE_LOGO =
   'https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/light/claudecode-color.png';
 
 export function InstallScreen() {
-  const { ocStatus, setOcStatus, setShowInstallScreen } = useStore();
+  const {
+    ocStatus,
+    setOcStatus,
+    setShowInstallScreen,
+    setUserSkippedInstall,
+    userSkippedInstall,
+  } = useStore();
   const logRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll log
@@ -33,7 +39,9 @@ export function InstallScreen() {
   // (and we're not already installing, and there's no error), automatically
   // trigger the install. This is what the user asked for:
   //   "se ele reconhecer ta baixado senao ele baixa de novo"
+  // Skip auto-install if user already chose to skip.
   useEffect(() => {
+    if (userSkippedInstall) return;
     if (
       !ocStatus.installed &&
       !ocStatus.installing &&
@@ -48,11 +56,20 @@ export function InstallScreen() {
     ocStatus.installing,
     ocStatus.detecting,
     ocStatus.error,
+    userSkippedInstall,
   ]);
 
   const handleContinue = () => {
     setShowInstallScreen(false);
     setOcStatus({ ...ocStatus, installed: true });
+  };
+
+  const handleSkip = () => {
+    // Mark that the user explicitly chose to skip the install screen.
+    // This prevents App.tsx from re-showing it on the next render (which
+    // would otherwise happen because openclaude is not installed).
+    setUserSkippedInstall(true);
+    setShowInstallScreen(false);
   };
 
   const handleRetry = () => {
@@ -209,7 +226,7 @@ export function InstallScreen() {
               Tentar novamente
             </button>
             <button
-              onClick={() => setShowInstallScreen(false)}
+              onClick={handleSkip}
               className="rounded-lg border border-[var(--border)] px-6 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
             >
               Continuar mesmo assim
@@ -227,7 +244,7 @@ export function InstallScreen() {
         {/* Skip button — lets user bypass detection/install and go to chat UI */}
         {(isDetecting || isNotInstalled) && (
           <button
-            onClick={() => setShowInstallScreen(false)}
+            onClick={handleSkip}
             className="rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
           >
             Pular

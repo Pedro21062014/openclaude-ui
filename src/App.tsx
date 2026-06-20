@@ -20,6 +20,7 @@ export default function App() {
     showSettings,
     showInstallScreen,
     setShowInstallScreen,
+    userSkippedInstall,
   } = useStore();
 
   // Theme
@@ -102,15 +103,15 @@ export default function App() {
   }, [setOcStatus]);
 
   // Show install screen only when:
-  //   - detection has finished (`!detecting`)
-  //   - openclaude is not installed
-  //   - install is not in progress
-  // During detection we show the InstallScreen too, but in "Checking..." mode
-  // (it renders its own loading state — see InstallScreen.tsx).
+  //   - user hasn't explicitly skipped it (userSkippedInstall === false), AND
+  //   - any of: user explicitly opened it (showInstallScreen=true), OR
+  //             detection is in progress (and not installed yet), OR
+  //             detection finished and openclaude is not installed (and not installing)
   const shouldShowInstallScreen =
-    showInstallScreen ||
-    (ocStatus.detecting && !ocStatus.installed) ||
-    (!ocStatus.installed && !ocStatus.installing);
+    !userSkippedInstall &&
+    (showInstallScreen ||
+      (ocStatus.detecting && !ocStatus.installed) ||
+      (!ocStatus.installed && !ocStatus.installing));
 
   if (shouldShowInstallScreen) {
     return <InstallScreen />;

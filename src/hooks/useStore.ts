@@ -47,6 +47,11 @@ interface AppState {
   setShowSettings: (b: boolean) => void;
   showInstallScreen: boolean;
   setShowInstallScreen: (b: boolean) => void;
+  // User explicitly clicked "Pular" (Skip) on the install screen.
+  // Once true, App.tsx will NOT auto-show the install screen again even if
+  // openclaude is not installed. Reset to false only on app restart.
+  userSkippedInstall: boolean;
+  setUserSkippedInstall: (b: boolean) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -98,4 +103,6 @@ export const useStore = create<AppState>((set, get) => ({
   setShowSettings: (b) => set({ showSettings: b }),
   showInstallScreen: false,
   setShowInstallScreen: (b) => set({ showInstallScreen: b }),
+  userSkippedInstall: false,
+  setUserSkippedInstall: (b) => set({ userSkippedInstall: b }),
 }));
