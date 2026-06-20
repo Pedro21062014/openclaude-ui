@@ -28,15 +28,12 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             artifact_name: openclaude-ui-linux
-            pattern: 'release/*.{AppImage,deb,tar.gz,snap}'
           - os: windows-latest
             platform: win
             artifact_name: openclaude-ui-win
-            pattern: 'release/*.{exe,nsis.7z,zip}'
           - os: macos-latest
             platform: mac
             artifact_name: openclaude-ui-mac
-            pattern: 'release/*.{dmg,zip}'
 
     steps:
       - name: Checkout code
@@ -74,12 +71,14 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      # Upload everything in release/ — actions/upload-artifact@v4 does NOT
+      # support brace expansion ({a,b}), so we just upload the whole folder.
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.pattern }}
-          if-no-files-found: warn
+          path: release/*
+          if-no-files-found: error
           retention-days: 30
 
   # ---------------------------------------------------------------------------
@@ -110,10 +109,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: false
+
+      - name: List downloaded artifacts (debug)
+        run: |
+          echo "=== Artifacts tree ==="
+          find artifacts -type f | sort
+          echo ""
+          echo "=== Per-folder counts ==="
+          for d in artifacts/*/; do
+            echo "$d : $(find "$d" -type f | wc -l) files"
+          done
 
       - name: Flatten artifacts
         run: |
+          set -e
           mkdir -p release-files
+          # Copy only installer/package files (skip blockmap, yaml, etc.)
           find artifacts -type f \( \
             -name '*.exe' -o \
             -name '*.dmg' -o \
@@ -124,14 +136,17 @@ jobs:
             -name '*.snap' -o \
             -name '*.7z' -o \
             -name '*.rpm' \
-          \) -exec cp {} release-files/ \;
+          \) -exec cp -v {} release-files/ \;
+          echo ""
+          echo "=== Final release-files/ ==="
           ls -la release-files/
 
       - name: Generate checksums
         run: |
           cd release-files
           sha256sum * > checksums.sha256
-          ls -la
+          echo "=== Checksums ==="
+          cat checksums.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -145,7 +160,7 @@ jobs:
 
             | Platform | File | Description |
             |----------|------|-------------|
-            | Windows | `*.exe` | NSIS installer (recommended) |
+            | Windows | `*.exe` (Setup) | NSIS installer — recommended |
             | Windows | `*.exe` (portable) | Standalone portable |
             | macOS | `*.dmg` | Disk image installer |
             | macOS | `*.zip` | Zip archive |
@@ -156,25 +171,25 @@ jobs:
             ## Install instructions
 
             ### Windows
-            1. Download the `*.exe` installer
+            1. Download the `OpenClaude-UI-Setup-*.exe` installer
             2. Double-click to run
             3. Follow the setup wizard
 
             ### macOS
             1. Download the `*.dmg` file
             2. Open it and drag OpenClaude UI to Applications
-            3. On first launch: right-click → Open (to bypass Gatekeeper)
+            3. On first launch: right-click → Open (to bypass Gatekeeper, since the app is not code-signed)
 
             ### Linux
-            1. **AppImage**: chmod +x *.AppImage && ./*.AppImage
-            2. **deb**: sudo dpkg -i *.deb
+            1. **AppImage**: `chmod +x *.AppImage && ./*.AppImage`
+            2. **deb**: `sudo dpkg -i *.deb`
 
             ## What's new
-            - Beautiful Claude/ChatGPT-like interface
-            - Multi-provider support (Claude, OpenAI, Gemini, DeepSeek, Z.ai, OpenRouter, Ollama, Mistral, Qwen, Groq, xAI, Perplexity, Together, Fireworks)
-            - Animated "thinking" gradient orb
-            - Auto-install OpenClaude CLI on first launch
-            - Settings sync with OpenClaude
+            - Beautiful Claude/ChatGPT-like interface with warm cream palette
+            - Multi-provider support: Claude, OpenAI, Gemini, DeepSeek, Z.ai, OpenRouter, Ollama, Mistral, Qwen, Groq, xAI, Perplexity, Together, Fireworks
+            - Animated "thinking" gradient orb (boitinha)
+            - Auto-install OpenClaude CLI on first launch with animated Claude Code logo
+            - Settings sync with OpenClaude CLI
             - Real provider logos from lobehub/lobe-icons
 
             ## Checksums
@@ -184,7 +199,6 @@ jobs:
             *Built from commit ${{ github.sha }}*
           files: |
             release-files/*
-            release-files/checksums.sha256
           draft: false
           prerelease: false
           make_latest: true
