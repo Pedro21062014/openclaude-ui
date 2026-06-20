@@ -39,7 +39,11 @@ const CLAUDE_LOGO =
 export function WelcomeScreen({ onPickPrompt }: WelcomeScreenProps) {
   const { selectedModel, settings, setShowSettings } = useStore();
   const modelInfo = findModel(selectedModel);
-  const needsApiKey = modelInfo?.provider.requiresApiKey && !settings.apiKey;
+  const providerId = modelInfo?.provider.id || '';
+  const hasKeyForProvider =
+    !modelInfo?.provider.requiresApiKey ||
+    !!(settings.apiKeys?.[providerId] || settings.apiKey);
+  const needsApiKey = !hasKeyForProvider;
 
   return (
     <div className="mx-auto flex min-h-full max-w-3xl flex-col items-center justify-center px-6 py-12">
@@ -74,7 +78,7 @@ export function WelcomeScreen({ onPickPrompt }: WelcomeScreenProps) {
 
       {needsApiKey && (
         <div className="mb-6 max-w-md rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-center text-sm text-amber-600 dark:text-amber-400">
-          ⚠️ Este provedor requer uma API key.{' '}
+          ⚠️ {modelInfo?.provider.name} requer uma API key.{' '}
           <button
             onClick={() => setShowSettings(true)}
             className="font-medium underline hover:opacity-80"

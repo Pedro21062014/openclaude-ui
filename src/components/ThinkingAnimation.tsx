@@ -15,14 +15,15 @@ interface ThinkingAnimationProps {
  * character that appears to be "working" on a laptop. We render it at the
  * requested size and loop it.
  *
- * Default size is now 120px (was 64px) — the animation is detailed enough
- * that it looks much better larger. The InstallScreen uses 140px.
+ * Default size is 80px — small enough to fit inline in chat messages
+ * without dominating the screen, but large enough to see the animation
+ * detail. Callers can override with the `size` prop.
  *
  * A subtle pulsing text indicator ("Pensando...") appears next to it when
  * showText is true.
  */
 export function ThinkingAnimation({
-  size = 120,
+  size = 80,
   showText = true,
   text = 'Pensando',
 }: ThinkingAnimationProps) {

@@ -154,11 +154,7 @@ export function ChatInterface() {
         onSend={handleSend}
         onStop={handleStop}
         isThinking={isThinking}
-        disabled={
-          selected?.provider.requiresApiKey && !settings.apiKey && selectedModel !== ''
-            ? false
-            : false
-        }
+        disabled={false}
         placeholder={`Conversar com ${selected?.model.name || 'OpenClaude'}...`}
         editTarget={editTarget}
         onEditSubmit={handleEditSubmit}

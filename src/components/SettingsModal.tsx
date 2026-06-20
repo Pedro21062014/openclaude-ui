@@ -145,8 +145,8 @@ export function SettingsModal({}: SettingsModalProps) {
     if (confirm('Restaurar configurações padrão?')) {
       const defaults: AppSettings = {
         defaultModel: 'sonnet',
-        apiKey: '',
-        baseUrl: '',
+        apiKeys: {},
+        baseUrls: {},
         systemPrompt: '',
         temperature: 0.7,
         maxTokens: 8192,
@@ -261,55 +261,136 @@ export function SettingsModal({}: SettingsModalProps) {
                   </select>
                 </Field>
 
-                {/* API Key */}
-                {selectedModelInfo?.provider.requiresApiKey && (
-                  <Field
-                    icon={Key}
-                    label={`API Key — ${selectedModelInfo.provider.name}`}
-                    hint={
-                      selectedModelInfo.provider.envVar
-                        ? `Também pode ser definida via env var: ${selectedModelInfo.provider.envVar}`
-                        : 'Defina sua chave de API'
-                    }
-                  >
-                    <div className="flex items-center gap-2">
-                      <input
-                        type={showApiKey ? 'text' : 'password'}
-                        value={local.apiKey}
-                        onChange={(e) => update({ apiKey: e.target.value })}
-                        placeholder="sk-..."
-                        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-                      />
-                      <button
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        className="rounded-lg border border-[var(--border)] p-2 text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
-                      >
-                        {showApiKey ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </button>
-                    </div>
-                  </Field>
-                )}
+                {/* Per-provider API keys */}
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <Key className="h-4 w-4 text-[var(--text-secondary)]" />
+                    <label className="text-sm font-medium text-[var(--text-primary)]">
+                      Chaves de API por provedor
+                    </label>
+                  </div>
+                  <p className="mb-3 text-xs text-[var(--text-secondary)]">
+                    Cada provedor tem sua própria chave de API. Configure apenas
+                    os provedores que você quer usar. A chave correta é enviada
+                    automaticamente conforme o modelo selecionado.
+                  </p>
 
-                {/* Base URL */}
-                <Field
-                  icon={Globe}
-                  label="Base URL (opcional)"
-                  hint="Deixe em branco para usar o padrão do provedor. Útil para proxies ou gateways."
-                >
-                  <input
-                    type="text"
-                    value={local.baseUrl}
-                    onChange={(e) => update({ baseUrl: e.target.value })}
-                    placeholder={
-                      selectedModelInfo?.provider.defaultBaseUrl || 'https://...'
-                    }
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-                  />
-                </Field>
+                  <div className="space-y-2">
+                    {PROVIDERS.filter((p) => p.requiresApiKey).map((provider) => {
+                      const keyValue = local.apiKeys[provider.id] || '';
+                      const hasKey = keyValue.length > 0;
+                      return (
+                        <div
+                          key={provider.id}
+                          className={`rounded-lg border p-3 transition-colors ${
+                            hasKey
+                              ? 'border-green-500/30 bg-green-500/5'
+                              : 'border-[var(--border)] bg-[var(--surface)]'
+                          }`}
+                        >
+                          <div className="mb-2 flex items-center gap-2">
+                            <img
+                              src={provider.logo}
+                              alt={provider.name}
+                              className="h-5 w-5 object-contain"
+                              draggable={false}
+                            />
+                            <span className="text-sm font-medium text-[var(--text-primary)]">
+                              {provider.name}
+                            </span>
+                            {hasKey ? (
+                              <span className="ml-auto flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                                <Check className="h-3 w-3" />
+                                Configurado
+                              </span>
+                            ) : (
+                              <span className="ml-auto rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
+                                Não configurado
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type={showApiKey && hasKey ? 'text' : 'password'}
+                              value={keyValue}
+                              onChange={(e) => {
+                                const next = {
+                                  ...local.apiKeys,
+                                  [provider.id]: e.target.value,
+                                };
+                                update({ apiKeys: next });
+                              }}
+                              placeholder={`Cole aqui sua API key da ${provider.name}`}
+                              className="flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+                            />
+                            {hasKey && (
+                              <button
+                                onClick={() => setShowApiKey(!showApiKey)}
+                                className="rounded-md border border-[var(--border)] p-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
+                                title={showApiKey ? 'Ocultar' : 'Mostrar'}
+                              >
+                                {showApiKey ? (
+                                  <EyeOff className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Eye className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+                          {provider.envVar && (
+                            <p className="mt-1.5 text-[10px] text-[var(--text-secondary)]/70">
+                              Variável de ambiente alternativa:{' '}
+                              <code className="font-mono">{provider.envVar}</code>
+                              {' · '}
+                              Base URL padrão:{' '}
+                              <code className="font-mono">
+                                {provider.defaultBaseUrl}
+                              </code>
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Base URL override (per provider, advanced) */}
+                <details className="group">
+                  <summary className="cursor-pointer text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                    URL base personalizada por provedor (avançado)
+                  </summary>
+                  <p className="mt-2 mb-3 text-xs text-[var(--text-secondary)]">
+                    Útil para proxies ou gateways. Deixe em branco para usar a URL padrão.
+                  </p>
+                  <div className="space-y-2">
+                    {PROVIDERS.filter((p) => p.requiresApiKey).map((provider) => {
+                      const urlValue = local.baseUrls[provider.id] || '';
+                      return (
+                        <div key={provider.id} className="flex items-center gap-2">
+                          <img
+                            src={provider.logo}
+                            alt=""
+                            className="h-4 w-4 flex-shrink-0 object-contain"
+                            draggable={false}
+                          />
+                          <input
+                            type="text"
+                            value={urlValue}
+                            onChange={(e) => {
+                              const next = {
+                                ...local.baseUrls,
+                                [provider.id]: e.target.value,
+                              };
+                              update({ baseUrls: next });
+                            }}
+                            placeholder={provider.defaultBaseUrl || 'https://...'}
+                            className="flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
 
                 {/* System prompt */}
                 <Field

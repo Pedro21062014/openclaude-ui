@@ -74,8 +74,19 @@ export interface Conversation {
 export interface AppSettings {
   // OpenClaude CLI settings
   defaultModel: string;
-  apiKey: string;
-  baseUrl: string;
+  // Per-provider API keys: keys are provider IDs (claude, openai, gemini,
+  // deepseek, nvidia, etc.). Each provider gets its own API key field in
+  // the UI, and the correct one is sent to openclaude based on the
+  // selected model's provider.
+  apiKeys: Record<string, string>;
+  // Per-provider base URLs (optional overrides). If empty, the provider's
+  // default base URL from src/data/models.ts is used.
+  baseUrls: Record<string, string>;
+  // Legacy single apiKey (kept for migration from old settings files).
+  // If apiKeys is empty but apiKey is set, the legacy value is used for
+  // the defaultModel's provider.
+  apiKey?: string;
+  baseUrl?: string;
   systemPrompt: string;
   temperature: number;
   maxTokens: number;

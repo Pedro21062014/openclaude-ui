@@ -183,7 +183,7 @@ function MessageItem({
       {/* Content */}
       <div className="selectable ml-9 min-h-[28px]">
         {message.thinking && !message.content ? (
-          <ThinkingAnimation size={140} />
+          <ThinkingAnimation size={88} />
         ) : (
           <>
             <div className="markdown-body">
@@ -220,7 +220,7 @@ function MessageItem({
 
             {message.thinking && message.content && (
               <div className="mt-2">
-                <ThinkingAnimation size={80} showText={false} />
+                <ThinkingAnimation size={56} showText={false} />
               </div>
             )}
 

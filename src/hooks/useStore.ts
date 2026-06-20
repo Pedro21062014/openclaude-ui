@@ -4,8 +4,8 @@ import { PROVIDERS } from '@/data/models';
 
 const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: 'sonnet', // openclaude alias for latest Claude Sonnet
-  apiKey: '',
-  baseUrl: '',
+  apiKeys: {}, // per-provider API keys (keyed by provider ID)
+  baseUrls: {}, // per-provider base URL overrides
   systemPrompt: '',
   temperature: 0.7,
   maxTokens: 8192,
@@ -17,6 +17,51 @@ const DEFAULT_SETTINGS: AppSettings = {
   customArgs: '',
   telemetry: false,
 };
+
+/**
+ * Migrate legacy settings (single apiKey/baseUrl) to the new per-provider
+ * structure. If the loaded settings have an `apiKey` field but no
+ * `apiKeys` map, we move the legacy value into apiKeys under the
+ * defaultModel's provider ID.
+ */
+function migrateSettings(raw: any): AppSettings {
+  const merged: AppSettings = { ...DEFAULT_SETTINGS, ...raw };
+  // Ensure apiKeys/baseUrls exist as objects
+  if (!merged.apiKeys || typeof merged.apiKeys !== 'object') {
+    merged.apiKeys = {};
+  }
+  if (!merged.baseUrls || typeof merged.baseUrls !== 'object') {
+    merged.baseUrls = {};
+  }
+  // Migrate legacy single apiKey → apiKeys[providerId]
+  if (raw?.apiKey && typeof raw.apiKey === 'string' && raw.apiKey.trim()) {
+    // Find which provider the defaultModel belongs to
+    try {
+      const { findModel } = require('@/data/models');
+      const modelInfo = findModel(merged.defaultModel);
+      const providerId = modelInfo?.provider?.id || 'openai';
+      if (!merged.apiKeys[providerId]) {
+        merged.apiKeys[providerId] = raw.apiKey;
+      }
+    } catch {
+      // ignore — keep legacy value as-is
+    }
+  }
+  // Migrate legacy single baseUrl
+  if (raw?.baseUrl && typeof raw.baseUrl === 'string' && raw.baseUrl.trim()) {
+    try {
+      const { findModel } = require('@/data/models');
+      const modelInfo = findModel(merged.defaultModel);
+      const providerId = modelInfo?.provider?.id || 'openai';
+      if (!merged.baseUrls[providerId]) {
+        merged.baseUrls[providerId] = raw.baseUrl;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return merged;
+}
 
 // -------------------------------------------------------------
 // Conversation history persistence (localStorage)
@@ -119,7 +164,7 @@ export const useStore = create<AppState>((set, get) => ({
       return { settings: next };
     }),
   initSettings: (s) =>
-    set((state) => ({ settings: { ...DEFAULT_SETTINGS, ...s } })),
+    set((state) => ({ settings: migrateSettings(s) })),
 
   // ----- Conversations -----
   conversations: loadConversations(),

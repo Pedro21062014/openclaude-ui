@@ -484,9 +484,19 @@ export function useOpenClaude() {
 
       // Build options
       const modelInfo = findModel(selectedModel);
-      const apiKey = settings.apiKey || '';
-      const baseUrl = settings.baseUrl || modelInfo?.provider.defaultBaseUrl || '';
       const provider = modelInfo?.provider.id || 'openai';
+      // Look up the API key for THIS provider (each provider has its own).
+      // Falls back to legacy single apiKey field if apiKeys map is empty.
+      const apiKey =
+        settings.apiKeys?.[provider] ||
+        settings.apiKey || // legacy migration
+        '';
+      // Look up the base URL for THIS provider (per-provider override).
+      // Falls back to the provider's default base URL.
+      const baseUrl =
+        settings.baseUrls?.[provider] ||
+        modelInfo?.provider.defaultBaseUrl ||
+        '';
 
       const options = {
         model: selectedModel,

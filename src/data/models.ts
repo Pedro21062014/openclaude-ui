@@ -256,14 +256,55 @@ export const PROVIDERS: ModelProvider[] = [
     envVar: 'OPENAI_API_KEY',
     defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
     models: [
-      { id: 'nvidia/llama-3.3-nemotron-super-49b-v1', name: 'Nemotron Super 49B', contextWindow: 128000, description: 'Modelo otimizado pela NVIDIA' },
+      // NVIDIA-built models (Nemotron family)
+      { id: 'nvidia/llama-3.3-nemotron-super-49b-v1', name: 'Nemotron Super 49B', contextWindow: 128000, description: 'Modelo otimizado pela NVIDIA — mais capaz' },
+      { id: 'nvidia/llama-3.1-nemotron-ultra-253b-v1', name: 'Nemotron Ultra 253B', contextWindow: 128000, description: 'Maior modelo da família Nemotron' },
       { id: 'nvidia/llama-3.1-nemotron-70b-instruct', name: 'Nemotron 70B Instruct', contextWindow: 128000 },
-      { id: 'meta/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (NVIDIA)', contextWindow: 128000 },
-      { id: 'meta/llama-3.1-405b-instruct', name: 'Llama 3.1 405B (NVIDIA)', contextWindow: 128000 },
+      { id: 'nvidia/llama-3.1-nemotron-nano-8b-v1', name: 'Nemotron Nano 8B', contextWindow: 128000, description: 'Versão leve e rápida' },
+      { id: 'nvidia/usdcode-llama-3.1-70b-instruct', name: 'USDCode Llama 3.1 70B', contextWindow: 128000, description: 'Especializado em USD/OpenUSD' },
+      { id: 'nvidia/mistral-nemo-minitron-8b-8k-instruct', name: 'Mistral Nemo Minitron 8B', contextWindow: 8000 },
+
+      // Meta Llama family (hosted by NVIDIA)
+      { id: 'meta/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', contextWindow: 128000 },
+      { id: 'meta/llama-3.1-405b-instruct', name: 'Llama 3.1 405B', contextWindow: 128000, description: 'Maior Llama open-source' },
+      { id: 'meta/llama-3.1-70b-instruct', name: 'Llama 3.1 70B', contextWindow: 128000 },
+      { id: 'meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', contextWindow: 128000 },
+      { id: 'meta/llama-3.2-1b-instruct', name: 'Llama 3.2 1B', contextWindow: 128000, description: 'Ultra-leve' },
+      { id: 'meta/llama-3.2-3b-instruct', name: 'Llama 3.2 3B', contextWindow: 128000 },
+      { id: 'meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision', contextWindow: 128000, description: 'Multimodal (visão)' },
+      { id: 'meta/llama-3.2-90b-vision-instruct', name: 'Llama 3.2 90B Vision', contextWindow: 128000, description: 'Multimodal (visão)' },
+      { id: 'meta/llama-3.1-405b-instruct-megatron', name: 'Llama 3.1 405B Megatron', contextWindow: 128000, description: 'Versão Megatron' },
+
+      // Mistral AI
       { id: 'mistralai/mixtral-8x22b-instruct-v0.1', name: 'Mixtral 8x22B', contextWindow: 65536 },
-      { id: 'qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', contextWindow: 32768 },
-      { id: 'deepseek-ai/deepseek-r1', name: 'DeepSeek R1 (NVIDIA)', contextWindow: 128000 },
+      { id: 'mistralai/mixtral-8x7b-instruct-v0.1', name: 'Mixtral 8x7B', contextWindow: 32768 },
+      { id: 'mistralai/mistral-7b-instruct-v0.3', name: 'Mistral 7B v0.3', contextWindow: 32768 },
+      { id: 'mistralai/mistral-large-2-instruct', name: 'Mistral Large 2', contextWindow: 128000 },
+      { id: 'nv-mistralai/mistral-nemo-12b-instruct', name: 'Mistral Nemo 12B', contextWindow: 128000 },
+
+      // Qwen family
+      { id: 'qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', contextWindow: 32768, description: 'Especializado em código' },
+      { id: 'qwen/qwen2.5-coder-7b-instruct', name: 'Qwen 2.5 Coder 7B', contextWindow: 32768 },
+      { id: 'qwen/qwen2.5-7b-instruct', name: 'Qwen 2.5 7B', contextWindow: 32768 },
+      { id: 'qwen/qwen2.5-72b-instruct', name: 'Qwen 2.5 72B', contextWindow: 32768 },
+      { id: 'qwen/qwen2-7b-instruct', name: 'Qwen 2 7B', contextWindow: 32768 },
+      { id: 'qwen/qwen2-72b-instruct', name: 'Qwen 2 72B', contextWindow: 32768 },
+
+      // DeepSeek
+      { id: 'deepseek-ai/deepseek-r1', name: 'DeepSeek R1', contextWindow: 128000, description: 'Modelo de raciocínio' },
+      { id: 'deepseek-ai/deepseek-coder', name: 'DeepSeek Coder', contextWindow: 16384, description: 'Especializado em código' },
+
+      // Google Gemma
       { id: 'google/gemma-2-27b', name: 'Gemma 2 27B', contextWindow: 8192 },
+      { id: 'google/gemma-2-9b', name: 'Gemma 2 9B', contextWindow: 8192 },
+      { id: 'google/gemma-2-2b', name: 'Gemma 2 2B', contextWindow: 8192 },
+
+      // Other open models hosted by NVIDIA
+      { id: '01-ai/yi-large', name: 'Yi Large', contextWindow: 32768 },
+      { id: 'ibm/granite-34b-code-instruct', name: 'IBM Granite 34B Code', contextWindow: 8192 },
+      { id: 'ibm/granite-8b-code-instruct', name: 'IBM Granite 8B Code', contextWindow: 8192 },
+      { id: 'aisingapore/sea-lion-7b-instruct', name: 'SEA-LION 7B', contextWindow: 4096 },
+      { id: 'mediatek/breeze-7b-instruct', name: 'Breeze 7B', contextWindow: 4096 },
     ],
   },
 ];

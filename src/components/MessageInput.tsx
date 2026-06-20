@@ -218,7 +218,7 @@ export function MessageInput({
       <div className="mx-auto max-w-3xl">
         {isThinking && (
           <div className="mb-2 flex items-center justify-between rounded-lg bg-[var(--bg-secondary)] px-3 py-1.5">
-            <ThinkingAnimation size={48} showText={false} />
+            <ThinkingAnimation size={36} showText={false} />
             <button
               onClick={onStop}
               className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--text-primary)]"
