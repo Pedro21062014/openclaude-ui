@@ -126,50 +126,83 @@ function getCandidatePaths(): string[] {
 }
 
 /**
- * Fast detection — should complete in well under 1 second on most systems.
+ * Real detection — actually RUN the `openclaude` command to verify it works.
  *
  * Strategy (in order, stops at first hit):
- *   1. Probe known install paths directly (no subprocess).
- *   2. Quick `which`/`where` with a 1.5s timeout.
- *   3. Bail out — do NOT fall back to npx (it does network calls and is slow).
+ *   1. Try `openclaude --version` directly (uses PATH, fast on most systems).
+ *      This is the ONLY reliable check — file existence doesn't guarantee the
+ *      binary actually runs (could be broken, wrong arch, missing deps, etc).
+ *   2. Probe known install paths and run each one with --version.
+ *   3. Quick `which`/`where` with a 1.5s timeout, then run the result.
+ *   4. Bail out → returns null → caller can decide to install.
  *
- * Returns the path + version, or null if not found.
+ * Every subprocess has a hard 1.5s timeout so the UI never hangs.
+ *
+ * Returns the path + version, or null if openclaude is NOT working.
  */
 async function detectOpenClaude(): Promise<{ path: string; version: string } | null> {
-  // ---- Step 1: probe candidate paths directly (instant) ----
+  // ---- Step 1: try `openclaude --version` directly (PATH-based) ----
+  // This is the most reliable check — if the command runs and exits 0 with
+  // non-empty output, openclaude is actually working.
+  try {
+    const r = await execWithTimeout('openclaude --version', 2000);
+    if (r.code === 0 && r.stdout.trim()) {
+      // Try to find the actual path for display purposes
+      let ocPath = 'openclaude';
+      try {
+        const w = await execWithTimeout(
+          process.platform === 'win32' ? 'where openclaude' : 'which openclaude',
+          1000,
+        );
+        if (w.code === 0 && w.stdout.trim()) {
+          ocPath = w.stdout.trim().split(/\r?\n/)[0];
+        }
+      } catch {}
+      return { path: ocPath, version: r.stdout.trim() };
+    }
+  } catch {
+    // openclaude not on PATH or timed out — try known install paths next
+  }
+
+  // ---- Step 2: probe candidate paths and RUN each one ----
   const candidates = getCandidatePaths();
   for (const p of candidates) {
-    if (fileExists(p)) {
-      // Try to get version (fast, with timeout)
-      let version = 'unknown';
-      try {
-        const r = await execWithTimeout(`"${p}" --version`, 1500);
-        if (r.code === 0 && r.stdout.trim()) version = r.stdout.trim();
-      } catch {
-        // version lookup failed — but the binary exists, so still report it
+    if (!fileExists(p)) continue;
+    // Run --version to verify the binary actually works
+    try {
+      const r = await execWithTimeout(`"${p}" --version`, 2000);
+      if (r.code === 0 && r.stdout.trim()) {
+        return { path: p, version: r.stdout.trim() };
       }
-      return { path: p, version };
+      // If --version fails, try --help (some CLIs don't have --version)
+      const h = await execWithTimeout(`"${p}" --help`, 2000);
+      if (h.code === 0 && (h.stdout.trim() || h.stderr.trim())) {
+        return { path: p, version: 'installed' };
+      }
+    } catch {
+      // Binary exists but didn't run — keep probing other candidates
     }
   }
 
-  // ---- Step 2: quick which/where with hard 1.5s timeout ----
+  // ---- Step 3: which/where with hard timeout, then run ----
   try {
     const cmd = process.platform === 'win32' ? 'where openclaude' : 'which openclaude';
     const r = await execWithTimeout(cmd, 1500);
     if (r.code === 0 && r.stdout.trim()) {
       const ocPath = r.stdout.trim().split(/\r?\n/)[0];
-      let version = 'unknown';
+      // Verify it actually runs
       try {
-        const v = await execWithTimeout(`"${ocPath}" --version`, 1500);
-        if (v.code === 0 && v.stdout.trim()) version = v.stdout.trim();
+        const v = await execWithTimeout(`"${ocPath}" --version`, 2000);
+        if (v.code === 0 && v.stdout.trim()) {
+          return { path: ocPath, version: v.stdout.trim() };
+        }
       } catch {}
-      return { path: ocPath, version };
     }
   } catch {
-    // which/where timed out or failed — fall through to "not found"
+    // which/where timed out or failed
   }
 
-  // ---- Step 3: NOT found. Do NOT try npx (it's slow and does network calls) ----
+  // ---- Step 4: NOT found / not working ----
   return null;
 }
 

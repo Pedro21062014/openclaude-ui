@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '@/hooks/useStore';
 
+// App version (kept in sync with package.json via Vite's define plugin would be ideal,
+// but hardcoding here is simpler and matches the release tag)
+const APP_VERSION = '1.0.4';
+
 const CLAUDE_CODE_LOGO =
   'https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/light/claudecode-color.png';
 
@@ -15,7 +19,8 @@ export function InstallScreen() {
     }
   }, [ocStatus.installLog]);
 
-  // Kick off install if user clicks the button (NOT auto-start)
+  // Kick off install (called automatically when detection says not-installed,
+  // OR when user clicks the "Instalar OpenClaude" button)
   const startInstall = async () => {
     try {
       await window.openclaude?.installOpenClaude();
@@ -23,6 +28,27 @@ export function InstallScreen() {
       console.error(e);
     }
   };
+
+  // AUTO-INSTALL: when detection completes and openclaude is NOT installed
+  // (and we're not already installing, and there's no error), automatically
+  // trigger the install. This is what the user asked for:
+  //   "se ele reconhecer ta baixado senao ele baixa de novo"
+  useEffect(() => {
+    if (
+      !ocStatus.installed &&
+      !ocStatus.installing &&
+      !ocStatus.detecting &&
+      !ocStatus.error
+    ) {
+      const t = setTimeout(startInstall, 600);
+      return () => clearTimeout(t);
+    }
+  }, [
+    ocStatus.installed,
+    ocStatus.installing,
+    ocStatus.detecting,
+    ocStatus.error,
+  ]);
 
   const handleContinue = () => {
     setShowInstallScreen(false);
@@ -210,7 +236,7 @@ export function InstallScreen() {
       </div>
 
       <p className="absolute bottom-6 text-xs text-[var(--text-secondary)]">
-        OpenClaude UI ·{' '}
+        OpenClaude UI v{APP_VERSION} ·{' '}
         <a
           href="https://github.com/Gitlawb/openclaude"
           target="_blank"
